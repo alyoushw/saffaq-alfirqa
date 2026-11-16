@@ -3,9 +3,11 @@
 const IO = (() => {
   const Cap = window.Capacitor;
   const native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
-  const FS = native ? Cap.Plugins.Filesystem : null;
-  const Share = native ? Cap.Plugins.Share : null;
-  const Media = native ? Cap.registerPlugin('MediaTools') : null;
+  // الإضافات تتسجّل عن طريق مكتبة Capacitor (js/capacitor.js)
+  const reg = n => { try { return Cap.registerPlugin ? Cap.registerPlugin(n) : (Cap.Plugins && Cap.Plugins[n]) || null; } catch (e) { window.__showErr && __showErr('plugin ' + n + ': ' + e.message); return null; } };
+  const FS = native ? reg('Filesystem') : null;
+  const Share = native ? reg('Share') : null;
+  const Media = native ? reg('MediaTools') : null;
 
   function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
 

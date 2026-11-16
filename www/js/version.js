@@ -1,1 +1,1 @@
-window.APP_VERSION = { code: 103, name: '1.0.3' };
+window.APP_VERSION = { code: 104, name: '1.0.4' };
