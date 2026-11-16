@@ -30,10 +30,19 @@
   };
   const clipEd = Tracks.editor($('clipTracks'), C.model, {
     change() { C.style = 'custom'; renderStyles(); rebuild(); },
-    preview(t, ti, v) { if (C.playing) return; const c = Engine.audio(); const ch = previewChain(c); Engine.hit(t, v || 2, c.currentTime + .02, c, ch, ti, C.model.tracks.length, 0); },
+    preview(t, ti, v) { if (C.playing) return; previewHit(t, v, ti, C.model.tracks.length); },
   });
-  let pChain = null;
-  function previewChain(c) { if (!pChain) pChain = Engine.makeChain(c, { room: .35, wet: 15, clapGain: .9 }); return pChain; }
+  // سماع صفقة وحدة: نجهّزها كملف قصير ونشغّلها
+  const fx = $('fx'); let fxUrl = null;
+  async function previewHit(t, v, ti, n) {
+    try {
+      const oc = new OfflineAudioContext(2, Math.ceil(Engine.SR * 1.6), Engine.SR); const ch = Engine.makeChain(oc, { room: .35, wet: 15, clapGain: .9 });
+      Engine.hit(t, v || 2, .02, oc, ch, ti || 0, n || 1, 0);
+      const bytes = Engine.wav(await oc.startRendering());
+      if (fxUrl) URL.revokeObjectURL(fxUrl); fxUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+      fx.src = fxUrl; await fx.play();
+    } catch (e) { console.error(e); }
+  }
 
   function renderStyles() {
     const box = $('styles'); box.innerHTML = '';
@@ -129,7 +138,7 @@
       }
     }
     ev.sort((x, y) => x.t - y.t); C.events = ev;
-    if (C.playing) { const p = curPos() + .25; C.idx = lowerBound(ev, p); }
+    refreshMix();
     saveClip(); drawWave();
   }
   const lowerBound = (ev, t) => { let lo = 0, hi = ev.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t < t) lo = m + 1; else hi = m; } return lo; };
@@ -158,46 +167,58 @@
     C.pos = Math.max(0, Math.min(C.buffer.duration - .1, t)); if (C.playing) { stopClip(); playClip(C.pos); } else drawWave();
   });
 
-  // ---- التشغيل
-  const curPos = () => C.playing ? C.pos + (Engine.ctx().currentTime - C.t0) : C.pos;
+  // ---- التشغيل: نجهّز الصوت كامل كملف ونشغّله بمشغّل الجوال العادي (أضمن من التشغيل المباشر)
+  const player = $('player');
+  let mixUrl = null, mixKey = '', mixBusy = null, refreshT = null;
+  const curPos = () => C.playing ? player.currentTime : C.pos;
   function clapGain() { return Math.pow(10, C.clapDb / 20) * Math.max(.6, Math.min(2.5, C.songRms / .08)) * .9; }
+  const mixKeyNow = () => JSON.stringify([C.name, C.beats.length, C.beats[0], C.phase, C.model, C.nudge, C.from, C.to, C.clapDb, C.loose, C.room, C.wet, C.solo]);
+  async function ensureMix() {
+    const k = mixKeyNow(); if (mixUrl && k === mixKey) return mixUrl;
+    if (mixBusy) await mixBusy;
+    if (mixUrl && mixKeyNow() === mixKey) return mixUrl;
+    const btn = $('playBtn'); const prevTxt = btn.textContent; btn.textContent = '⏳ جاري التجهيز…'; btn.disabled = true;
+    mixBusy = (async () => {
+      const buf = await renderClip(!C.solo); const bytes = Engine.wav(buf);
+      if (mixUrl) URL.revokeObjectURL(mixUrl);
+      mixUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })); mixKey = k;
+    })();
+    try { await mixBusy; } finally { mixBusy = null; btn.disabled = false; btn.textContent = C.playing ? '■ إيقاف' : prevTxt.startsWith('⏳') ? '▶ تشغيل' : prevTxt; }
+    return mixUrl;
+  }
   async function playClip(from) {
-    if (!C.buffer) return; const c = await Engine.ready();
-    if (c.state !== 'running') { toast('الصوت مقفل. اضغط تشغيل مرة ثانية.'); return; }
-    if (!Object.keys(Engine.bank).length || !(Engine.bank.open || []).length) { try { await Engine.loadBank(); } catch (e) { toast('أصوات الصفقة ما تحمّلت'); } }
-    C.chain = Engine.makeChain(c, { room: C.room, wet: C.wet, clapGain: clapGain() });
-    const src = c.createBufferSource(); src.buffer = C.buffer; const sg = c.createGain(); sg.gain.value = C.solo ? 0 : 1; src.connect(sg).connect(c.destination);
-    C.t0 = c.currentTime + .08; C.pos = from || 0; src.start(C.t0, C.pos); C.src = src; C.songGain = sg; C.playing = true;
-    C.idx = lowerBound(C.events, C.pos);
-    src.onended = () => { if (C.src === src) stopClip(true); };
-    const v = $('vid'); if (C.isVideo) { try { v.currentTime = C.pos; v.play(); } catch (e) { } }
-    C.timer = setInterval(schedClip, 25); schedClip(); requestAnimationFrame(frameClip);
+    if (!C.buffer) return;
+    try {
+      const url = await ensureMix();
+      if (player.src !== url) player.src = url;
+      player.currentTime = from || 0; await player.play();
+    } catch (e) { console.error(e); toast('ما قدرت أشغّل الصوت: ' + (e.message || '')); return; }
+    C.playing = true;
+    const v = $('vid'); if (C.isVideo) { try { v.muted = true; v.currentTime = from || 0; v.play(); } catch (e) { } }
+    requestAnimationFrame(frameClip);
     $('playBtn').textContent = '■ إيقاف'; $('playBtn').classList.add('on');
   }
-  function schedClip() {
-    const c = Engine.ctx(), horizon = c.currentTime + .2;
-    while (C.idx < C.events.length) {
-      const e = C.events[C.idx], at = C.t0 + (e.t - C.pos); if (at > horizon) break;
-      if (at >= c.currentTime - .01) Engine.hit(C.model.tracks[e.ti] || { snd: 'open', people: 1 }, e.v, at, c, C.chain, e.ti, C.model.tracks.length, C.loose);
-      C.idx++;
-    }
+  player.onended = () => { if (C.playing) stopClip(true); };
+  // أي تعديل وقت التشغيل: نجهّز من جديد ونكمل من نفس المكان
+  function refreshMix() {
+    if (!C.playing) return; clearTimeout(refreshT);
+    refreshT = setTimeout(async () => { if (!C.playing) return; const p = player.currentTime; try { const url = await ensureMix(); if (!C.playing) return; player.src = url; player.currentTime = p; await player.play(); } catch (e) { } }, 700);
   }
   function frameClip() {
     if (!C.playing) return; const p = curPos(); $('timeLbl').textContent = fmtT(p) + ' / ' + fmtT(C.buffer.duration);
+    const v = $('vid'); if (C.isVideo && !v.paused && Math.abs(v.currentTime - p) > .3) { try { v.currentTime = p; } catch (e) { } }
     // تمييز الخانة الحالية
     const b = C.beats; let lo = 0, hi = b.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (b[m] <= p) lo = m; else hi = m - 1; }
     if (b[lo + 1]) { const per = C.model.beats, s = Math.min(C.model.sub - 1, Math.floor((p - b[lo]) / (b[lo + 1] - b[lo]) * C.model.sub)); clipEd.highlight((((lo - C.phase) % per + per) % per) * C.model.sub + s); }
     drawWave(); requestAnimationFrame(frameClip);
   }
   function stopClip(ended) {
-    if (!C.playing) return; C.playing = false; clearInterval(C.timer);
-    try { C.src.stop(); } catch (e) { } C.pos = ended ? 0 : curPosFrozen(); const v = $('vid'); try { v.pause(); } catch (e) { }
-    const ch = C.chain; setTimeout(() => { try { ch.bus.disconnect(); } catch (e) { } }, 1500);
+    if (!C.playing) return; C.playing = false; clearTimeout(refreshT);
+    C.pos = ended ? 0 : player.currentTime; try { player.pause(); } catch (e) { } const v = $('vid'); try { v.pause(); } catch (e) { }
     clipEd.highlight(-1); $('playBtn').textContent = '▶ تشغيل'; $('playBtn').classList.remove('on'); drawWave();
   }
-  function curPosFrozen() { const c = Engine.ctx(); return c ? Math.max(0, C.pos + (c.currentTime - C.t0)) : 0; }
   $('playBtn').onclick = () => C.playing ? stopClip() : playClip(C.pos >= C.buffer.duration - .2 ? 0 : C.pos);
-  $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); $('soloBtn').textContent = C.solo ? '🔇 المقطع مكتوم (اضغط ترجّعه)' : 'الصفقة لحالها'; if (C.songGain) C.songGain.gain.value = C.solo ? 0 : 1; if (C.isVideo) $('vid').muted = true; };
+  $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); $('soloBtn').textContent = C.solo ? '🔇 المقطع مكتوم (اضغط ترجّعه)' : 'الصفقة لحالها'; refreshMix(); };
 
   // ---- إصلاح الإيقاع
   $('dblBtn').onclick = () => { C.beats = DSP.doubleBeats(C.beats); C.phase = (C.phase * 2) % C.model.beats; updateStats(); rebuild(); toast('صارت السرعة الضعف'); };
@@ -233,10 +254,10 @@
   $('nudge').oninput = e => { C.nudge = +e.target.value; syncCtrls(); rebuild(); };
   $('fromS').oninput = e => { C.from = Math.min(+e.target.value, C.to - 1); syncCtrls(); rebuild(); };
   $('toS').oninput = e => { C.to = Math.max(+e.target.value, C.from + 1); syncCtrls(); rebuild(); };
-  $('clapLvl').oninput = e => { C.clapDb = +e.target.value; syncCtrls(); saveClip(); if (C.chain) C.chain.bus.gain.value = clapGain(); };
-  $('loose').oninput = e => { C.loose = +e.target.value; syncCtrls(); saveClip(); };
-  $('room').onchange = e => { C.room = +e.target.value; saveClip(); if (C.chain) C.chain.set({ room: C.room, wet: C.wet }); };
-  $('wet').oninput = e => { C.wet = +e.target.value; syncCtrls(); saveClip(); if (C.chain) C.chain.set({ wet: C.wet }); };
+  $('clapLvl').oninput = e => { C.clapDb = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
+  $('loose').oninput = e => { C.loose = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
+  $('room').onchange = e => { C.room = +e.target.value; saveClip(); refreshMix(); };
+  $('wet').oninput = e => { C.wet = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
   $('clipAdd').onclick = () => clipEd.addTrack();
 
   // ---- التصدير
@@ -291,20 +312,20 @@
   const S = Object.assign({ bpm: 96, loose: 10, room: 1.1, wet: 22, cycles: 16, style: 'mawlid', model: { beats: 4, sub: 4, tracks: Tracks.STYLES.mawlid.tracks() } }, sSaved || {});
   S.playing = false; S.lastUri = null;
   const sEd = Tracks.editor($('sTracks'), S.model, {
-    change() { S.style = 'custom'; renderSStyles(); sSave(); sMeta(); },
-    preview(t, ti, v) { if (S.playing) return; const c = Engine.audio(); Engine.hit(t, v || 2, c.currentTime + .02, c, previewChain(c), ti, S.model.tracks.length, 0); },
+    change() { S.style = 'custom'; renderSStyles(); sSave(); sMeta(); sRefresh(); },
+    preview(t, ti, v) { if (S.playing) return; previewHit(t, v, ti, S.model.tracks.length); },
   });
   function sSave() { const { playing, lastUri, chain, timer, ...rest } = S; rest.model = { beats: S.model.beats, sub: S.model.sub, tracks: S.model.tracks.filter(t => !t.snd.startsWith('u')) }; store.set('studio2', rest); }
   function renderSStyles() {
     const box = $('sStyles'); box.innerHTML = '';
     for (const [k, s] of Object.entries(Tracks.STYLES)) { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', S.style === k); b.textContent = s.name;
-      b.onclick = () => { S.style = k; S.model.tracks.splice(0, S.model.tracks.length, ...Tracks.STYLES[k].tracks()); Tracks.resize(S.model.tracks, 4, 4, S.model.beats, S.model.sub); renderSStyles(); sEd.render(); sSave(); sMeta(); }; box.appendChild(b); }
+      b.onclick = () => { S.style = k; S.model.tracks.splice(0, S.model.tracks.length, ...Tracks.STYLES[k].tracks()); Tracks.resize(S.model.tracks, 4, 4, S.model.beats, S.model.sub); renderSStyles(); sEd.render(); sSave(); sMeta(); sRefresh(); }; box.appendChild(b); }
   }
   function renderLib() {
     const box = $('lib'); box.innerHTML = '';
     for (const s of Engine.LIB) {
       const b = document.createElement('button'); b.className = 'snd'; b.innerHTML = `<span class="ic">▶</span><span>${s.name}<small>${s.sub}</small></span>`;
-      b.onclick = () => { const c = Engine.audio(); Engine.hit({ snd: s.id, people: 1, vol: 100 }, 2, c.currentTime + .02, c, previewChain(c), 0, 1, 0); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 220); };
+      b.onclick = () => { previewHit({ snd: s.id, people: 1, vol: 100 }, 2, 0, 1); b.classList.add('hit'); setTimeout(() => b.classList.remove('hit'), 220); };
       box.appendChild(b);
     }
   }
@@ -315,28 +336,34 @@
     const sec = S.cycles * S.model.beats * 60 / S.bpm; $('sDur').textContent = AR(S.cycles) + ' ≈ ' + fmtT(sec);
     $('sMeta').textContent = `${AR(S.model.tracks.length)} أشخاص · ${AR(S.bpm)} ض/د`;
   }
-  $('sBpm').oninput = e => { S.bpm = +e.target.value; sMeta(); sSave(); };
-  $('sLoose').oninput = e => { S.loose = +e.target.value; sMeta(); sSave(); };
-  $('sRoom').onchange = e => { S.room = +e.target.value; sSave(); if (S.chain) S.chain.set({ room: S.room, wet: S.wet }); };
+  $('sBpm').oninput = e => { S.bpm = +e.target.value; sMeta(); sSave(); sRefresh(); };
+  $('sLoose').oninput = e => { S.loose = +e.target.value; sMeta(); sSave(); sRefresh(); };
+  $('sRoom').onchange = e => { S.room = +e.target.value; sSave(); sRefresh(); };
   $('sCycles').oninput = e => { S.cycles = +e.target.value; sMeta(); sSave(); };
-  $('sBeats').onchange = e => { const nb = +e.target.value; Tracks.resize(S.model.tracks, S.model.beats, S.model.sub, nb, S.model.sub); S.model.beats = nb; S.step = 0; sEd.render(); sSave(); sMeta(); };
-  $('sSub').onchange = e => { const ns = +e.target.value; Tracks.resize(S.model.tracks, S.model.beats, S.model.sub, S.model.beats, ns); S.model.sub = ns; S.step = 0; sEd.render(); sSave(); sMeta(); };
+  $('sBeats').onchange = e => { const nb = +e.target.value; Tracks.resize(S.model.tracks, S.model.beats, S.model.sub, nb, S.model.sub); S.model.beats = nb; S.step = 0; sEd.render(); sSave(); sMeta(); sRefresh(); };
+  $('sSub').onchange = e => { const ns = +e.target.value; Tracks.resize(S.model.tracks, S.model.beats, S.model.sub, S.model.beats, ns); S.model.sub = ns; S.step = 0; sEd.render(); sSave(); sMeta(); sRefresh(); };
   $('sAdd').onclick = () => sEd.addTrack();
-  $('sClear').onclick = () => { S.model.tracks.forEach(t => t.cells.fill(0)); sEd.render(); sSave(); };
-  function schedStudio() {
-    const c = Engine.ctx(), n = S.model.beats * S.model.sub;
-    while (S.nextT < c.currentTime + .15) {
-      const i = S.step % n; S.model.tracks.forEach((t, ti) => { if (!t.mute && t.cells[i]) Engine.hit(t, t.cells[i], S.nextT, c, S.chain, ti, S.model.tracks.length, S.loose); });
-      S.queue.push({ s: i, t: S.nextT }); S.nextT += sStep(); S.step = (S.step + 1) % n;
-    }
+  $('sClear').onclick = () => { S.model.tracks.forEach(t => t.cells.fill(0)); sEd.render(); sSave(); sRefresh(); };
+  // الاستوديو: نجهّز ٨ دورات كملف ونكرره
+  const sPlayer = $('splayer'); let sUrl = null, sKey = '', sRefreshT = null;
+  const sCycleDur = () => S.model.beats * S.model.sub * sStep();
+  async function sEnsure() {
+    const k = JSON.stringify([S.model, S.bpm, S.loose, S.room, S.wet]); if (sUrl && k === sKey) return sUrl;
+    const n = S.model.beats * S.model.sub, cyc = Math.max(2, Math.ceil(16 / sCycleDur())), len = cyc * sCycleDur();
+    const oc = new OfflineAudioContext(2, Math.ceil(len * Engine.SR), Engine.SR); const ch = Engine.makeChain(oc, { room: S.room, wet: S.wet, clapGain: .9 });
+    let t = 0.0; for (let k2 = 0; k2 < cyc; k2++) for (let i = 0; i < n; i++) { S.model.tracks.forEach((tr, ti) => { if (!tr.mute && tr.cells[i]) Engine.hit(tr, tr.cells[i], t + .001, oc, ch, ti, S.model.tracks.length, S.loose); }); t += sStep(); }
+    const bytes = Engine.wav(await oc.startRendering(), .9);
+    if (sUrl) URL.revokeObjectURL(sUrl); sUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })); sKey = k; return sUrl;
   }
-  function frameStudio() { if (!S.playing) return; const c = Engine.ctx(); let cur = null; while (S.queue.length && S.queue[0].t <= c.currentTime) cur = S.queue.shift(); if (cur) sEd.highlight(cur.s); requestAnimationFrame(frameStudio); }
-  function stopStudio() { if (!S.playing) return; S.playing = false; clearInterval(S.timer); S.queue = []; sEd.highlight(-1); $('sPlay').textContent = '▶ تشغيل الكل'; $('sPlay').classList.remove('on'); const ch = S.chain; setTimeout(() => { try { ch.bus.disconnect(); } catch (e) { } }, 1500); }
+  function frameStudio() { if (!S.playing) return; const n = S.model.beats * S.model.sub; sEd.highlight(Math.floor((sPlayer.currentTime % sCycleDur()) / sStep()) % n); requestAnimationFrame(frameStudio); }
+  function stopStudio() { if (!S.playing) return; S.playing = false; clearTimeout(sRefreshT); try { sPlayer.pause(); } catch (e) { } sEd.highlight(-1); $('sPlay').textContent = '▶ تشغيل الكل'; $('sPlay').classList.remove('on'); }
+  function sRefresh() { if (!S.playing) return; clearTimeout(sRefreshT); sRefreshT = setTimeout(async () => { if (!S.playing) return; const p = sPlayer.currentTime % sCycleDur(); const u = await sEnsure(); if (!S.playing) return; sPlayer.src = u; sPlayer.currentTime = p; sPlayer.play().catch(() => { }); }, 600); }
   $('sPlay').onclick = async () => {
     if (S.playing) { stopStudio(); return; }
-    const c = await Engine.ready(); S.chain = Engine.makeChain(c, { room: S.room, wet: S.wet, clapGain: .9 });
-    S.playing = true; S.step = 0; S.queue = []; S.nextT = c.currentTime + .06; S.timer = setInterval(schedStudio, 25); schedStudio(); requestAnimationFrame(frameStudio);
-    $('sPlay').textContent = '■ إيقاف'; $('sPlay').classList.add('on');
+    $('sPlay').textContent = '⏳ جاري التجهيز…'; $('sPlay').disabled = true;
+    try { sPlayer.src = await sEnsure(); sPlayer.loop = true; sPlayer.currentTime = 0; await sPlayer.play(); S.playing = true; requestAnimationFrame(frameStudio); $('sPlay').textContent = '■ إيقاف'; $('sPlay').classList.add('on'); }
+    catch (e) { console.error(e); $('sPlay').textContent = '▶ تشغيل الكل'; toast('ما قدرت أشغّل الصوت'); }
+    finally { $('sPlay').disabled = false; }
   };
   $('sExport').onclick = async () => {
     if (busy) return; busy = true; stopStudio(); const st = $('sStatus'); $('sShare').hidden = true;

@@ -1,6 +1,6 @@
 # صفّاق الفرقة
 
-**تحميل آخر إصدار:** https://github.com/alyoushw/saffaq-alfirqa/releases/latest/download/saffaq-alfirqa.apk
+**تحميل التطبيق:** https://github.com/alyoushw/saffaq-alfirqa/raw/main/download/saffaq-alfirqa.apk
 
 التطبيق ينبّه بنفسه إذا نزل إصدار جديد، وتقدر تحدّثه من داخله.
 

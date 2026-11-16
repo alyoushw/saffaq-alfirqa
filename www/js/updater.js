@@ -2,7 +2,7 @@
 'use strict';
 (() => {
   const REPO = 'alyoushw/saffaq-alfirqa', ASSET = 'saffaq-alfirqa.apk';
-  const DIRECT = `https://github.com/${REPO}/releases/latest/download/${ASSET}`;
+  const DIRECT = `https://github.com/${REPO}/raw/main/download/${ASSET}`;
   const $ = id => document.getElementById(id);
   const AR = n => String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[d]);
   const cur = window.APP_VERSION || { code: 0, name: '?' };
@@ -15,12 +15,10 @@
   async function check(manual) {
     if (checking) return; checking = true;
     try {
-      const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/download/version.json?t=${Date.now()}`, { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
-      const code = parseInt((j.tag_name || '').split('-c')[1] || '0', 10);
-      const asset = (j.assets || []).find(a => a.name === ASSET);
-      latest = { code, name: (j.name || j.tag_name || '').replace(/^v/, ''), notes: (j.body || '').trim(), url: asset ? asset.browser_download_url : DIRECT };
+      latest = { code: j.code | 0, name: j.name, notes: (j.notes || '').trim(), url: DIRECT };
       if (code > cur.code) { if (!snoozed || manual) show(); }
       else if (manual) toast('عندك آخر إصدار (' + cur.name + ')');
     } catch (e) {

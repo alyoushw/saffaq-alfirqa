@@ -1,15 +1,7 @@
 name: بناء ونشر التطبيق
 
+# يدوي فقط: يحتاج السر SIGNING_PASSWORD. النسخ الحالية تُنشر في مجلد download/
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'www/**'
-      - 'android/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'capacitor.config.json'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
