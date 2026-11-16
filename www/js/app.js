@@ -171,6 +171,7 @@
   function updateDiag() {
     const d = $('diag'); if (!d) return; const active = C.model.tracks.filter(t => !t.mute).length;
     if (!soundCheck.ok) { d.className = 'diag err'; d.textContent = '⚠ ' + soundCheck.msg + ' — صوّر هذي الرسالة وأرسلها.'; return; }
+    if (!C.buffer) { d.className = 'diag'; d.textContent = `✓ ${AR(soundCheck.sounds)} صوت صفقة جاهز. اختر مقطع.`; return; }
     if (!C.events.length) { d.className = 'diag err'; d.textContent = '⚠ ما فيه ولا صفقة على المقطع. اختر شكل صفقة من فوق، أو تأكد إن الأشخاص مو مكتومين.'; return; }
     d.className = 'diag'; d.textContent = `✓ ${AR(C.events.length)} صفقة على المقطع · ${AR(active)} أشخاص · ${AR(soundCheck.sounds)} صوت صفقة جاهز`;
   }
@@ -278,7 +279,8 @@
   const baseName = () => (C.name || 'مقطع').replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]/g, '').slice(0, 40);
   let busy = false;
   async function doExport(kind) {
-    if (busy || !C.buffer) return; busy = true; stopClip();
+    if (!C.buffer) { status($('expStatus'), 'اختر مقطع أول.', 'err'); return; }
+    if (busy) { status($('expStatus'), 'فيه تصدير شغال، انتظر شوي.', 'err'); return; } busy = true; stopClip();
     const st = $('expStatus'), pr = $('expProg'); $('shareBtn').hidden = true;
     const fmt = IO.native ? $('fmt').value : 'wav';
     try {
@@ -421,13 +423,13 @@
 
   /* ================= البداية ================= */
   (async () => {
-    renderStyles(); clipEd.render(); renderSStyles(); sEd.render(); sMeta();
+    const step = (name, f) => { try { return f(); } catch (e) { window.__showErr && __showErr(name + ': ' + (e.stack || e.message)); } };
+    step('styles', renderStyles); step('clipEditor', () => clipEd.render()); step('studioStyles', renderSStyles); step('studioEditor', () => sEd.render()); step('studioMeta', sMeta);
     status($('clipStatus'), 'جاري تحميل أصوات الصفقات…');
-    try { await Engine.loadBank(); } catch (e) { }
-    soundCheck = await Engine.selfTest();
+    try { await Engine.loadBank(); } catch (e) { window.__showErr && __showErr('loadBank: ' + e.message); }
+    try { soundCheck = await Engine.selfTest(); } catch (e) { soundCheck = { ok: false, sounds: 0, msg: 'selfTest: ' + e.message }; }
     status($('clipStatus'), soundCheck.ok ? '' : '⚠ ' + soundCheck.msg, soundCheck.ok ? '' : 'err');
-    updateDiag();
-    renderLib();
+    step('diag', updateDiag); step('lib', renderLib);
     window.__app = { C, S, loadSource, renderClip, rebuild };
   })();
 })();

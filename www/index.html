@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>صفّاق الفرقة</title>
-<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/app.css?v=103">
+<script>
+// صندوق الأخطاء: يظهر على الشاشة عشان نعرف وش صار في الجوال
+window.__errs=[];
+function __showErr(m){try{window.__errs.push(String(m).slice(0,400));var b=document.getElementById('errbox');if(!b){b=document.createElement('div');b.id='errbox';b.style.cssText='position:fixed;left:8px;right:8px;bottom:90px;z-index:99;background:#8a2323;color:#fff;padding:10px 12px;border-radius:10px;font:12px/1.45 monospace;direction:ltr;text-align:left;max-height:40vh;overflow:auto;white-space:pre-wrap';b.onclick=function(){b.remove();window.__errs=[]};(document.body||document.documentElement).appendChild(b);}b.textContent='صوّر هذا وأرسله (اضغط للإغلاق)\n'+navigator.userAgent.replace(/.*(Chrome\/[\d.]+).*/,'$1')+'\n'+window.__errs.join('\n');}catch(e){}}
+window.addEventListener('error',function(e){__showErr((e.message||'error')+' @ '+String(e.filename||'').split('/').pop()+':'+e.lineno+':'+e.colno)});
+window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showErr('Promise: '+(r&&(r.stack||r.message)||r))});
+</script>
 </head>
 <body>
 <header class="app">
@@ -84,7 +91,7 @@
       <button class="ghost" id="soloBtn" aria-pressed="false">الصفقة لحالها</button>
       <span class="file" id="timeLbl"></span>
     </div>
-    <div class="diag" id="diag"></div>
+    <div class="diag" id="diag">جاري فحص أصوات الصفقة…</div>
     <div class="ctrls">
       <div class="ctrl"><label for="clapLvl">قوة الصفقة <output id="clapLvlO"></output></label><input type="range" id="clapLvl" min="-24" max="12" step="1" value="0"></div>
       <div class="ctrl"><label for="loose">تفاوت الأيادي <output id="looseO"></output></label><input type="range" id="loose" min="0" max="35" step="1" value="10"><span class="hint">٠ = مثل الآلة، ١٠ = طبيعي</span></div>
@@ -165,13 +172,13 @@
 <audio id="splayer" preload="auto"></audio>
 <audio id="fx" preload="auto"></audio>
 
-<script src="js/version.js"></script>
-<script src="js/sounds.js"></script>
-<script src="js/dsp.js"></script>
-<script src="js/engine.js"></script>
-<script src="js/tracks.js"></script>
-<script src="js/io.js"></script>
-<script src="js/app.js"></script>
-<script src="js/updater.js"></script>
+<script src="js/version.js?v=103"></script>
+<script src="js/sounds.js?v=103"></script>
+<script src="js/dsp.js?v=103"></script>
+<script src="js/engine.js?v=103"></script>
+<script src="js/tracks.js?v=103"></script>
+<script src="js/io.js?v=103"></script>
+<script src="js/app.js?v=103"></script>
+<script src="js/updater.js?v=103"></script>
 </body>
 </html>
