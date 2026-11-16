@@ -56,6 +56,7 @@
   }
   function applyStyle(k) {
     C.style = k; $('tapsPanel').hidden = k !== 'taps'; $('editBox').hidden = k === 'taps';
+    if (k !== 'taps' && ['add', 'del', 'move', 'str'].includes(C.tool)) { C.tool = 'seek'; document.querySelectorAll('#toolbar .tool').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === 'seek')); $('wavewrap').classList.remove('edit'); }
     if (k === 'taps') {
       const ppl = +$('tapPeople').value || 5;
       C.model.tracks.splice(0, C.model.tracks.length,
@@ -103,7 +104,7 @@
 
   async function loadSource(file, name, isVideo) {
     stopClip();
-    C.file = file; C.name = name; C.isVideo = isVideo; C.lastUri = null;
+    C.file = file; C.name = name; C.isVideo = isVideo; C.lastUri = null; C.loop = null; C.hist = []; if ($('loopPanel')) $('loopPanel').hidden = true;
     $('fileName').textContent = (isVideo ? '🎬 ' : '🎵 ') + name;
     const v = $('vid'); if (v.src) URL.revokeObjectURL(v.src);
     v.hidden = !isVideo; if (isVideo) v.src = URL.createObjectURL(file); else v.removeAttribute('src');
@@ -184,28 +185,121 @@
   function saveClip() { store.set('clip1', { clapDb: C.clapDb, loose: C.loose, room: C.room, wet: C.wet, songVol: C.songVol }); }
 
   // ---- الرسم
+  // ---- الرسم والتعديل على شكل المقطع
+  C.tool = 'seek'; C.zoom = 1; C.loop = null; C.hist = []; let drag = null;
+  const TOOL_HINT = {
+    seek: 'المس الشكل عشان تسمع من أي مكان.',
+    add: 'المس أي مكان في الشكل وتنضاف طقة قوية هناك.',
+    del: 'المس الطقة (النقطة) عشان تحذفها.',
+    move: 'اسحب الطقة يمين أو يسار لمكانها الصح. كبّر الشكل للدقة.',
+    str: 'المس الطقة عشان تبدّلها بين قوية وخفيفة.',
+    loop: 'اسحب على الشكل من بداية الجزء لنهايته، وبعدها اختر مدة التكرار تحت.',
+  };
+  function setTool(t) {
+    if (['add', 'del', 'move', 'str'].includes(t) && C.style !== 'taps') toTaps(true);
+    C.tool = t; document.querySelectorAll('#toolbar .tool').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === t));
+    $('toolHint').textContent = TOOL_HINT[t]; $('wavewrap').classList.toggle('edit', t !== 'seek'); drawWave();
+  }
+  document.querySelectorAll('#toolbar .tool').forEach(b => b.onclick = () => setTool(b.dataset.t));
+  // تحويل أي شكل صفقة لطقّات تقدر تعدّلها
+  function toTaps(silent) {
+    const m = []; for (const e of C.events) { const last = m[m.length - 1]; if (last && Math.abs(last.t - e.t) < .02) { last.s = Math.max(last.s, e.v === 2 ? .9 : .45); } else m.push({ t: e.t + C.nudge / 1000, s: e.v === 2 ? .9 : .45 }); }
+    C.taps = m; C.tapQuant = false; $('tapQuant').checked = false; applyStyle('taps');
+    if (!silent) toast('حوّلت الصفقة لطقّات تقدر تعدّلها'); else toast('حوّلت الصفقة لطقّات عشان تعدّلها');
+  }
+  function pushHist() { C.hist.push(C.taps.map(t => ({ ...t }))); if (C.hist.length > 60) C.hist.shift(); $('undoBtn').disabled = false; }
+  $('undoBtn').onclick = () => { if (!C.hist.length) return; C.taps = C.hist.pop(); $('undoBtn').disabled = !C.hist.length; renderStyles(); rebuild(); };
+  $('zoom').oninput = e => { const wrap = $('wavewrap'), oldW = $('wave').clientWidth, frac = (wrap.scrollLeft + wrap.clientWidth / 2) / oldW; C.zoom = +e.target.value; drawWave(); wrap.scrollLeft = frac * $('wave').clientWidth - wrap.clientWidth / 2; };
   function drawWave() {
-    const cv = $('wave'); if (!C.buffer || cv.offsetParent === null) return;
-    const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr;
+    const cv = $('wave'), wrap = $('wavewrap'); if (!C.buffer || wrap.offsetParent === null) return;
+    const dpr = window.devicePixelRatio || 1, W = Math.round(wrap.clientWidth * C.zoom), H = cv.clientHeight || 140;
+    cv.style.width = W + 'px'; cv.width = W * dpr; cv.height = H * dpr;
     const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
     const cs = getComputedStyle(document.documentElement), col = n => cs.getPropertyValue(n).trim();
-    const dur = C.buffer.duration, X = t => W - t / dur * W, pk = C.peaks, N = pk.length / 2;
+    const dur = C.buffer.duration, X = t => W - t / dur * W, pk = C.peaks, N = pk.length / 2, top = 30;
     let mx = 1e-6; for (let i = 0; i < pk.length; i++) mx = Math.max(mx, Math.abs(pk[i]));
-    // نطاق الصفقة
-    g.fillStyle = col('--cell'); g.globalAlpha = .6; g.fillRect(X(Math.min(C.to, dur)), 0, X(C.from) - X(Math.min(C.to, dur)), H); g.globalAlpha = 1;
-    g.fillStyle = col('--wave');
-    for (let i = 0; i < N; i++) { const x = W - (i + 1) / N * W; const a = pk[2 * i] / mx, b = pk[2 * i + 1] / mx; g.fillRect(x, H / 2 - b * H * .42, Math.max(1, W / N), Math.max(1, (b - a) * H * .42)); }
+    g.fillStyle = col('--cell'); g.globalAlpha = .6; g.fillRect(X(Math.min(C.to, dur)), top, X(C.from) - X(Math.min(C.to, dur)), H - top); g.globalAlpha = 1;
+    if (C.loop) { g.fillStyle = col('--copper'); g.globalAlpha = .2; g.fillRect(X(C.loop.b), 0, X(C.loop.a) - X(C.loop.b), H); g.globalAlpha = 1; g.fillRect(X(C.loop.a) - 1, 0, 2, H); g.fillRect(X(C.loop.b) - 1, 0, 2, H); }
+    g.fillStyle = col('--wave'); const mid = top + (H - top) / 2, amp = (H - top) * .45;
+    for (let i = 0; i < N; i++) { const x = W - (i + 1) / N * W; const a = pk[2 * i] / mx, b = pk[2 * i + 1] / mx; g.fillRect(x, mid - b * amp, Math.max(1, W / N), Math.max(1, (b - a) * amp)); }
     const per = C.model.beats;
-    C.beats.forEach((t, i) => { const down = ((i - C.phase) % per + per) % per === 0; g.fillStyle = col(down ? '--down' : '--beat'); g.globalAlpha = down ? .95 : .55; g.fillRect(X(t) - (down ? 1 : .5), down ? 0 : H * .78, down ? 2 : 1, down ? H : H * .22); });
-    if (C.style === 'taps') { g.globalAlpha = 1; g.fillStyle = col('--accent'); for (const tp of C.taps) { g.beginPath(); g.arc(X(tp.t), 9, 2.5 + tp.s * 4, 0, 7); g.fill(); } }
+    C.beats.forEach((t, i) => { const down = ((i - C.phase) % per + per) % per === 0; g.fillStyle = col(down ? '--down' : '--beat'); g.globalAlpha = down ? .9 : .5; g.fillRect(X(t) - (down ? 1 : .5), down ? top : H * .85, down ? 2 : 1, down ? H - top : H * .15); });
     g.globalAlpha = 1;
+    if (C.style === 'taps') {
+      g.fillStyle = col('--line'); g.fillRect(0, top / 2, W, 1);
+      for (let i = 0; i < C.taps.length; i++) { const tp = C.taps[i], strong = tp.s >= .6, x = X(tp.t); g.beginPath(); g.arc(x, top / 2, strong ? 9 : 6, 0, 7);
+        if (strong) { g.fillStyle = col(drag && drag.i === i ? '--copper' : '--accent'); g.fill(); } else { g.fillStyle = col('--panel'); g.fill(); g.lineWidth = 2; g.strokeStyle = col('--accent'); g.stroke(); }
+        g.globalAlpha = .35; g.fillStyle = col('--accent'); g.fillRect(x - .5, top, 1, H - top); g.globalAlpha = 1; }
+    }
     const p = C.playing ? curPos() : C.pos; if (p > 0) { g.fillStyle = col('--ink'); g.fillRect(X(p) - 1, 0, 2, H); }
+    if (C.playing && C.zoom > 1) { const x = X(p); if (x < wrap.scrollLeft + 20 || x > wrap.scrollLeft + wrap.clientWidth - 20) wrap.scrollLeft = x - wrap.clientWidth / 2; }
   }
   window.addEventListener('resize', drawWave);
+  const tAt = e => { const r = $('wave').getBoundingClientRect(); return Math.max(0, Math.min(C.buffer.duration, (r.right - e.clientX) / r.width * C.buffer.duration)); };
+  const hitTap = e => { const r = $('wave').getBoundingClientRect(), W = r.width, dur = C.buffer.duration; let bi = -1, bd = 22; C.taps.forEach((tp, i) => { const x = r.right - tp.t / dur * W, d = Math.abs(x - e.clientX); if (d < bd) { bd = d; bi = i; } }); return bi; };
+  const snapBeat = t => { let best = t, bd = 1e9; for (const b of C.beats) { const d = Math.abs(b - t); if (d < bd) { bd = d; best = b; } } return best; };
   $('wave').addEventListener('pointerdown', e => {
-    if (!C.buffer) return; const r = e.currentTarget.getBoundingClientRect(); const t = (r.right - e.clientX) / r.width * C.buffer.duration;
-    C.pos = Math.max(0, Math.min(C.buffer.duration - .1, t)); if (C.playing) { stopClip(); playClip(C.pos); } else drawWave();
+    if (!C.buffer) return; const t = tAt(e);
+    if (C.tool === 'seek') { C.pos = Math.min(C.buffer.duration - .1, t); if (C.playing) { stopClip(); playClip(C.pos); } else drawWave(); return; }
+    if (C.tool === 'add') { pushHist(); C.taps.push({ t, s: .9 }); C.taps.sort((a, b) => a.t - b.t); renderStyles(); rebuild(); return; }
+    if (C.tool === 'loop') { $('wave').setPointerCapture(e.pointerId); drag = { loop: true, a: t }; C.loop = { a: t, b: t }; drawWave(); return; }
+    const i = hitTap(e); if (i < 0) { toast('ما فيه طقة هنا. المس النقطة نفسها، أو كبّر الشكل.'); return; }
+    if (C.tool === 'del') { pushHist(); C.taps.splice(i, 1); renderStyles(); rebuild(); }
+    else if (C.tool === 'str') { pushHist(); C.taps[i].s = C.taps[i].s >= .6 ? .4 : .9; rebuild(); }
+    else if (C.tool === 'move') { pushHist(); $('wave').setPointerCapture(e.pointerId); drag = { i }; drawWave(); }
   });
+  $('wave').addEventListener('pointermove', e => {
+    if (!drag) return; const t = tAt(e);
+    if (drag.loop) { C.loop = { a: Math.min(drag.a, t), b: Math.max(drag.a, t) }; drawWave(); return; }
+    C.taps[drag.i].t = t; drawWave();
+  });
+  const endDrag = () => {
+    if (!drag) return; const d = drag; drag = null;
+    if (d.loop) { C.loopRaw = { ...C.loop }; finishLoop(); return; }
+    const moved = C.taps[d.i]; C.taps.sort((a, b) => a.t - b.t); rebuild();
+  };
+  $('wave').addEventListener('pointerup', endDrag); $('wave').addEventListener('pointercancel', endDrag);
+
+  // ---- التكرار
+  function finishLoop() {
+    if (!C.loop) return; let { a, b } = C.loop;
+    if ($('loopSnap').checked && C.beats.length) {
+      // على بدايات المازورة عشان يتكرر عدد كامل من المازورات
+      const per = C.model.beats, downs = C.beats.filter((t, i) => ((i - C.phase) % per + per) % per === 0);
+      const ib = median(C.beats.slice(1).map((t, i) => t - C.beats[i])) || .5, bar = ib * per;
+      const near = t => downs.reduce((x, y) => Math.abs(y - t) < Math.abs(x - t) ? y : x, downs[0] ?? t);
+      a = near(a); const bars = Math.max(1, Math.round((b - a) / bar)); b = a + bars * bar;
+      const nb = near(b); if (Math.abs(nb - b) < ib / 2) b = nb;
+    }
+    if (b - a < .3) { C.loop = null; $('loopPanel').hidden = true; drawWave(); toast('الجزء قصير، اسحب أطول'); return; }
+    C.loop = { a, b }; $('loopPanel').hidden = false;
+    const ib = median(C.beats.slice(1).map((t, i) => t - C.beats[i])) || .5, bars = (b - a) / (ib * C.model.beats);
+    $('loopInfo').textContent = `من ${fmtT(a)} إلى ${fmtT(b)} (${AR((b - a).toFixed(2))} ثانية` + ($('loopSnap').checked ? `، ${AR(Math.round(bars))} مازورة)` : ')');
+    drawWave();
+  }
+  $('loopSnap').onchange = () => { if (C.loop && C.loopRaw) { C.loop = { ...C.loopRaw }; } finishLoop(); };
+  $('loopClear').onclick = () => { C.loop = null; $('loopPanel').hidden = true; stopLoopPlay(); drawWave(); };
+  async function renderLoop(total, withVoice) {
+    const { a, b } = C.loop, len = b - a, SR = Engine.SR;
+    const oc = new OfflineAudioContext(2, Math.ceil((total + Math.max(C.room, .3) + .3) * SR), SR);
+    if (withVoice && C.songVol > 0) for (let k = 0; k * len < total; k++) { const s = oc.createBufferSource(); s.buffer = C.buffer; const g = oc.createGain(); g.gain.value = C.songVol / 100; s.connect(g).connect(oc.destination); s.start(k * len, a, Math.min(len, total - k * len)); }
+    const ch = Engine.makeChain(oc, { room: C.room, wet: C.wet, clapGain: clapGain() });
+    const ev = C.events.filter(e => e.t >= a - .005 && e.t < b - .005);
+    for (let k = 0; k * len < total; k++) for (const e of ev) { const t = k * len + (e.t - a); if (t < total) Engine.hit(C.model.tracks[e.ti], e.v, Math.max(0, t), oc, ch, e.ti, C.model.tracks.length, C.loose); }
+    return oc.startRendering();
+  }
+  const lplayer = $('lplayer'); let lUrl = null;
+  function stopLoopPlay() { try { lplayer.pause(); } catch (e) { } $('loopPlay').textContent = '▶ اسمع التكرار'; }
+  $('loopPlay').onclick = async () => {
+    if (!lplayer.paused) { stopLoopPlay(); return; }
+    if (!C.loop) return; stopClip(); $('loopPlay').textContent = '⏳'; 
+    try { const len = C.loop.b - C.loop.a; const buf = await renderLoop(Math.max(len * 4, 8), $('loopVoice').checked); if (lUrl) URL.revokeObjectURL(lUrl);
+      lUrl = URL.createObjectURL(new Blob([Engine.wav(buf)], { type: 'audio/wav' })); lplayer.src = lUrl; await lplayer.play(); $('loopPlay').textContent = '■ إيقاف'; }
+    catch (e) { stopLoopPlay(); toast('ما قدرت أشغّل التكرار'); }
+  };
+  lplayer.onended = stopLoopPlay;
+  $('loopExport').onclick = () => doExport('loop');
+  $('loopShare').onclick = () => IO.share(C.lastUri, 'صفّاق الفرقة').catch(() => { });
 
   let soundCheck = { ok: true, sounds: 0 };
   function updateDiag() {
@@ -331,11 +425,11 @@
   async function doExport(kind) {
     if (!C.buffer) { status($('expStatus'), 'اختر مقطع أول.', 'err'); return; }
     if (busy) { status($('expStatus'), 'فيه تصدير شغال، انتظر شوي.', 'err'); return; } busy = true; stopClip();
-    const st = $('expStatus'), pr = $('expProg'); $('shareBtn').hidden = true;
+    const isLoop = kind === 'loop', st = $(isLoop ? 'loopStatus' : 'expStatus'), pr = $(isLoop ? 'loopProg' : 'expProg'); $('shareBtn').hidden = true; $('loopShare').hidden = true;
     const fmt = IO.native ? $('fmt').value : 'wav';
     try {
       status(st, 'جاري تجهيز الصوت…'); setProg(pr, .05); await new Promise(r => setTimeout(r, 30));
-      const buf = await renderClip(kind !== 'claps'); setProg(pr, .35);
+      const buf = isLoop ? await renderLoop(+$('loopDur').value, $('loopVoice').checked) : await renderClip(kind !== 'claps'); setProg(pr, .35);
       const bytes = Engine.wav(buf); const stamp = Date.now();
       let res, label;
       if (kind === 'video') {
@@ -346,18 +440,18 @@
         const out = await IO.mux(vUri, aUri, 'out_' + stamp + '.mp4');
         res = await IO.publish(out, baseName() + ' - مع الصفقة.mp4', 'video/mp4'); label = 'الفيديو';
       } else {
-        const nm = baseName() + (kind === 'claps' ? ' - الصفقة لحالها' : ' - مع الصفقة');
+        const nm = baseName() + (isLoop ? ' - تكرار ' + Math.round(+$('loopDur').value / 60 * 10) / 10 + ' دقيقة' : kind === 'claps' ? ' - الصفقة لحالها' : ' - مع الصفقة');
         if (fmt === 'm4a') {
           const aUri = await IO.writeCache('a_' + stamp + '.wav', bytes, p => setProg(pr, .35 + p * .35));
           status(st, 'جاري الضغط…'); setProg(pr, .8);
           const out = await IO.mux(null, aUri, 'out_' + stamp + '.m4a');
           res = await IO.publish(out, nm + '.m4a', 'audio/mp4');
         } else res = await IO.save(nm + '.wav', bytes, 'audio/wav', p => setProg(pr, .35 + p * .6));
-        label = kind === 'claps' ? 'الصفقة' : 'الصوت';
+        label = isLoop ? 'التكرار' : kind === 'claps' ? 'الصفقة' : 'الصوت';
       }
       setProg(pr, null); C.lastUri = res.uri;
       status(st, res.location ? `تم حفظ ${label} في: ${res.location}` : `تم تجهيز ${label}. اضغط مشاركة عشان تحفظه أو ترسله.`, 'ok');
-      $('shareBtn').hidden = !IO.native;
+      $(isLoop ? 'loopShare' : 'shareBtn').hidden = !IO.native;
     } catch (err) {
       console.error(err); setProg(pr, null); status(st, 'ما تم التصدير: ' + (err && err.message ? err.message : 'خطأ غير معروف'), 'err');
     } finally { busy = false; }

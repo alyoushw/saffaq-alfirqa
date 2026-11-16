@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>صفّاق الفرقة</title>
-<link rel="stylesheet" href="css/app.css?v=107">
+<link rel="stylesheet" href="css/app.css?v=108">
 <script>
 // صندوق الأخطاء: يظهر على الشاشة عشان نعرف وش صار في الجوال
 window.__errs=[];
@@ -50,8 +50,34 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
       <div class="stat"><b id="stBeats">—</b><span>ضربة</span></div>
       <div class="stat"><b id="stConf">—</b><span>الثقة</span></div>
     </div>
-    <canvas class="wave" id="wave" aria-label="شكل المقطع والضربات"></canvas>
-    <p class="hint">الخطوط الصغيرة = الضربات، والملوّنة = بداية كل مازورة. المس الشكل عشان تسمع من أي مكان.</p>
+    <div class="tools">
+      <div class="toolbar" id="toolbar">
+        <button class="tool" data-t="seek" aria-pressed="true">▶<span>تنقّل</span></button>
+        <button class="tool" data-t="add" aria-pressed="false">➕<span>أضف طقة</span></button>
+        <button class="tool" data-t="del" aria-pressed="false">✖<span>احذف</span></button>
+        <button class="tool" data-t="move" aria-pressed="false">↔<span>حرّك</span></button>
+        <button class="tool" data-t="str" aria-pressed="false">💪<span>قوية/خفيفة</span></button>
+        <button class="tool" data-t="loop" aria-pressed="false">🔁<span>حدد التكرار</span></button>
+      </div>
+      <div class="row">
+        <button class="ghost" id="undoBtn" disabled>↶ تراجع</button>
+        <label class="zoom" for="zoom">🔍 تكبير <input type="range" id="zoom" min="1" max="8" step="1" value="1"></label>
+      </div>
+      <p class="hint" id="toolHint">المس الشكل عشان تسمع من أي مكان.</p>
+    </div>
+    <div class="wavewrap" id="wavewrap"><canvas class="wave" id="wave" aria-label="شكل المقطع والطقّات"></canvas></div>
+    <div class="loopPanel" id="loopPanel" hidden>
+      <b>🔁 الجزء اللي يتكرر: <span id="loopInfo"></span></b>
+      <label class="chk"><input type="checkbox" id="loopSnap" checked> اضبط البداية والنهاية على الضربات (تكرار سلس)</label>
+      <label class="chk"><input type="checkbox" id="loopVoice"> ومعه صوت المنشد</label>
+      <div class="row"><label for="loopDur">مدة الملف:</label>
+        <select id="loopDur"><option value="30">٣٠ ثانية</option><option value="60" selected>دقيقة</option><option value="120">دقيقتين</option><option value="180">٣ دقائق</option><option value="300">٥ دقائق</option><option value="600">١٠ دقائق</option></select></div>
+      <div class="row"><button class="ghost" id="loopPlay">▶ اسمع التكرار</button><button class="btn" id="loopExport">⬇ صدّر التكرار</button><button class="ghost" id="loopClear">إلغاء التحديد</button></div>
+      <div class="progress" id="loopProg" hidden><i></i></div>
+      <div class="status" id="loopStatus"></div>
+      <div class="row"><button class="ghost" id="loopShare" hidden>مشاركة الملف</button></div>
+    </div>
+    <p class="hint">النقاط فوق = الطقّات (الكبيرة قوية)، والخطوط الملوّنة = بداية كل مازورة.</p>
     <div class="chips" id="beatMode">
       <button class="chip" data-m="steady" aria-pressed="true">إيقاع ثابت<small>سرعة وحدة طول المقطع (مستحسن)</small></button>
       <button class="chip" data-m="follow" aria-pressed="false">يتبع المنشد<small>إذا كان يسرع ويبطئ</small></button>
@@ -190,15 +216,16 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
 <audio id="player" preload="auto"></audio>
 <audio id="splayer" preload="auto"></audio>
 <audio id="fx" preload="auto"></audio>
+<audio id="lplayer" preload="auto"></audio>
 
-<script src="js/capacitor.js?v=107"></script>
-<script src="js/version.js?v=107"></script>
-<script src="js/sounds.js?v=107"></script>
-<script src="js/dsp.js?v=107"></script>
-<script src="js/engine.js?v=107"></script>
-<script src="js/tracks.js?v=107"></script>
-<script src="js/io.js?v=107"></script>
-<script src="js/app.js?v=107"></script>
-<script src="js/updater.js?v=107"></script>
+<script src="js/capacitor.js?v=108"></script>
+<script src="js/version.js?v=108"></script>
+<script src="js/sounds.js?v=108"></script>
+<script src="js/dsp.js?v=108"></script>
+<script src="js/engine.js?v=108"></script>
+<script src="js/tracks.js?v=108"></script>
+<script src="js/io.js?v=108"></script>
+<script src="js/app.js?v=108"></script>
+<script src="js/updater.js?v=108"></script>
 </body>
 </html>

@@ -128,3 +128,15 @@ input[type=range]{direction:ltr}
 .ptime{font-size:.75rem;color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
 .chk{display:flex;gap:8px;align-items:center;font-size:.9rem}.chk input{width:18px;height:18px;accent-color:var(--accent)}
 .tapsPanel{display:flex;flex-direction:column;gap:10px;border:1px solid var(--accent);border-radius:10px;padding:10px}
+
+.tools{display:flex;flex-direction:column;gap:8px}
+.toolbar{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.tool{font:inherit;font-size:1.05rem;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:9px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer}
+.tool span{font-size:.66rem;color:var(--muted);line-height:1.2;text-align:center}
+.tool[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tool[aria-pressed="true"] span{color:var(--accent-ink)}
+.zoom{display:flex;align-items:center;gap:6px;font-size:.85rem;flex:1;min-width:150px}.zoom input{flex:1}
+.wavewrap{overflow-x:auto;border-radius:10px;background:var(--bg);touch-action:pan-x}
+.wavewrap.edit{touch-action:none}
+.wavewrap canvas.wave{height:140px;border-radius:0;touch-action:inherit}
+.loopPanel{display:flex;flex-direction:column;gap:8px;border:1px solid var(--copper);border-radius:10px;padding:10px}
