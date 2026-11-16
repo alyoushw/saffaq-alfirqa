@@ -7,7 +7,7 @@
   const AR = n => String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[d]);
   const cur = window.APP_VERSION || { code: 0, name: '?' };
   const Cap = window.Capacitor, native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
-  const Media = native ? Cap.registerPlugin('MediaTools') : null;
+  const Media = window.IO && IO.Media;
   let latest = null, snoozed = false, checking = false;
 
   $('verLbl').textContent = 'الإصدار ' + cur.name;

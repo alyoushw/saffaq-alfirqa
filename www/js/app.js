@@ -137,7 +137,7 @@
         C.model.tracks.forEach((tr, ti) => { const v = !tr.mute && tr.cells[slot]; if (v) ev.push({ t, ti, v, slot }); });
       }
     }
-    ev.sort((x, y) => x.t - y.t); C.events = ev;
+    ev.sort((x, y) => x.t - y.t); C.events = ev; updateDiag();
     refreshMix();
     saveClip(); drawWave();
   }
@@ -167,6 +167,13 @@
     C.pos = Math.max(0, Math.min(C.buffer.duration - .1, t)); if (C.playing) { stopClip(); playClip(C.pos); } else drawWave();
   });
 
+  let soundCheck = { ok: true, sounds: 0 };
+  function updateDiag() {
+    const d = $('diag'); if (!d) return; const active = C.model.tracks.filter(t => !t.mute).length;
+    if (!soundCheck.ok) { d.className = 'diag err'; d.textContent = '⚠ ' + soundCheck.msg + ' — صوّر هذي الرسالة وأرسلها.'; return; }
+    if (!C.events.length) { d.className = 'diag err'; d.textContent = '⚠ ما فيه ولا صفقة على المقطع. اختر شكل صفقة من فوق، أو تأكد إن الأشخاص مو مكتومين.'; return; }
+    d.className = 'diag'; d.textContent = `✓ ${AR(C.events.length)} صفقة على المقطع · ${AR(active)} أشخاص · ${AR(soundCheck.sounds)} صوت صفقة جاهز`;
+  }
   // ---- التشغيل: نجهّز الصوت كامل كملف ونشغّله بمشغّل الجوال العادي (أضمن من التشغيل المباشر)
   const player = $('player');
   let mixUrl = null, mixKey = '', mixBusy = null, refreshT = null;
@@ -416,7 +423,10 @@
   (async () => {
     renderStyles(); clipEd.render(); renderSStyles(); sEd.render(); sMeta();
     status($('clipStatus'), 'جاري تحميل أصوات الصفقات…');
-    try { await Engine.loadBank(); status($('clipStatus'), ''); } catch (e) { status($('clipStatus'), 'ما قدرت أحمّل أصوات الصفقات.', 'err'); }
+    try { await Engine.loadBank(); } catch (e) { }
+    soundCheck = await Engine.selfTest();
+    status($('clipStatus'), soundCheck.ok ? '' : '⚠ ' + soundCheck.msg, soundCheck.ok ? '' : 'err');
+    updateDiag();
     renderLib();
     window.__app = { C, S, loadSource, renderClip, rebuild };
   })();

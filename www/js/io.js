@@ -49,6 +49,6 @@ const IO = (() => {
     await Media.mux({ video: videoUri, audio: wavUri, out });
     return out;
   }
-  return { native, writeCache, save, publish, share, mux };
+  return { native, Media, writeCache, save, publish, share, mux };
 })();
 window.IO = IO;

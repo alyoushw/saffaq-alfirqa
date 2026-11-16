@@ -109,3 +109,7 @@ details[open] summary{margin-bottom:10px}
 .upd .btn{background:var(--accent-ink);color:var(--accent)}
 .upd .ghost{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent-ink) 50%,transparent)}
 .upd .status{color:var(--accent-ink)}
+
+input[type=range]{direction:ltr}
+.diag{font-size:.82rem;padding:8px 10px;border-radius:8px;background:var(--bg);color:var(--muted)}
+.diag.err{color:var(--copper);border:1px solid var(--copper)}

@@ -39,14 +39,43 @@ const Engine = (() => {
     return c;
   }
 
+  // قراءة WAV مباشرة بدون فك تشفير من الجوال
+  function parseWav(u8) {
+    const v = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let p = 12, ch = 1, rate = 44100, bits = 16, off = -1, len = 0;
+    while (p + 8 <= u8.length) {
+      const id = String.fromCharCode(u8[p], u8[p + 1], u8[p + 2], u8[p + 3]), sz = v.getUint32(p + 4, true);
+      if (id === 'fmt ') { ch = v.getUint16(p + 10, true); rate = v.getUint32(p + 12, true); bits = v.getUint16(p + 22, true); }
+      else if (id === 'data') { off = p + 8; len = Math.min(sz, u8.length - off); break; }
+      p += 8 + sz + (sz & 1);
+    }
+    if (off < 0 || bits !== 16) throw new Error('bad wav');
+    const frames = Math.floor(len / (2 * ch));
+    const buf = new AudioBuffer({ length: Math.max(1, frames), sampleRate: rate, numberOfChannels: 1 });
+    const out = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) { let s = 0; for (let c = 0; c < ch; c++) s += v.getInt16(off + (i * ch + c) * 2, true); out[i] = s / ch / 32768; }
+    return buf;
+  }
+  const b64u8 = b => { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+  let bankError = '';
   async function loadBank(onProgress) {
-    const man = await (await fetch('sounds/manifest.json')).json();
-    const dc = new OfflineAudioContext(1, 1, SR);
-    const ids = Object.keys(man); let done = 0;
+    const src = window.SOUND_DATA || {}; const ids = Object.keys(src); let done = 0;
+    if (!ids.length) { bankError = 'ملف الأصوات ما تحمّل'; throw new Error(bankError); }
     for (const id of ids) {
-      bank[id] = await Promise.all(man[id].map(async f => dc.decodeAudioData(await (await fetch('sounds/' + f)).arrayBuffer())));
+      bank[id] = src[id].map(b => { try { return parseWav(b64u8(b)); } catch (e) { bankError = e.message; return null; } }).filter(Boolean);
       onProgress && onProgress(++done / ids.length);
     }
+  }
+  // فحص ذاتي: نصيّر صفقة وحدة ونقيس إنها فعلاً تطلع صوت
+  async function selfTest() {
+    const n = Object.values(bank).reduce((a, x) => a + x.length, 0);
+    if (!n) return { ok: false, sounds: 0, msg: 'أصوات الصفقة ما تحمّلت' + (bankError ? ' (' + bankError + ')' : '') };
+    try {
+      const oc = new OfflineAudioContext(2, SR, SR); const ch = makeChain(oc, { room: 0, wet: 0, clapGain: 1 });
+      hit({ snd: 'open', people: 1, vol: 100 }, 2, .05, oc, ch, 0, 1, 0);
+      const r = await oc.startRendering(); const d = r.getChannelData(0); let pk = 0; for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i]));
+      return pk > .01 ? { ok: true, sounds: n, peak: pk } : { ok: false, sounds: n, msg: 'الصفقة طلعت صامتة في الفحص (' + pk.toFixed(4) + ')' };
+    } catch (e) { return { ok: false, sounds: n, msg: 'خطأ في الفحص: ' + e.message }; }
   }
 
   function makeIR(c, sec) {
@@ -101,6 +130,6 @@ const Engine = (() => {
     return new Uint8Array(ab);
   }
 
-  return { SR, LIB, bank, profiles, audio, ready, loadBank, makeChain, makeIR, hit, wav, rnd, gauss, ctx: () => ctx };
+  return { SR, LIB, bank, profiles, audio, ready, loadBank, selfTest, parseWav, makeChain, makeIR, hit, wav, rnd, gauss, ctx: () => ctx };
 })();
 window.Engine = Engine;

@@ -84,6 +84,7 @@
       <button class="ghost" id="soloBtn" aria-pressed="false">الصفقة لحالها</button>
       <span class="file" id="timeLbl"></span>
     </div>
+    <div class="diag" id="diag"></div>
     <div class="ctrls">
       <div class="ctrl"><label for="clapLvl">قوة الصفقة <output id="clapLvlO"></output></label><input type="range" id="clapLvl" min="-24" max="12" step="1" value="0"></div>
       <div class="ctrl"><label for="loose">تفاوت الأيادي <output id="looseO"></output></label><input type="range" id="loose" min="0" max="35" step="1" value="10"><span class="hint">٠ = مثل الآلة، ١٠ = طبيعي</span></div>
@@ -93,11 +94,12 @@
   </section>
 
   <section class="card" id="expCard" hidden>
-    <h2><span class="n">٥</span>صدّر</h2>
+    <h2><span class="n">٥</span>صدّر واحفظ</h2>
+    <p class="hint">اضغط زر من هذي الأزرار، والملف ينحفظ في جوالك (مجلد الموسيقى أو الأفلام ← صفاق الفرقة).</p>
     <div class="row" id="expBtns">
-      <button class="btn" id="expVideo" hidden>🎬 فيديو مع الصفقة</button>
-      <button class="btn" id="expMix">🎵 الصوت مع الصفقة</button>
-      <button class="ghost" id="expClaps">الصفقة لحالها</button>
+      <button class="btn" id="expVideo" hidden>⬇ صدّر فيديو مع الصفقة</button>
+      <button class="btn" id="expMix">⬇ صدّر الصوت مع الصفقة</button>
+      <button class="ghost" id="expClaps">⬇ صدّر الصفقة لحالها</button>
     </div>
     <div class="row">
       <label for="fmt">صيغة الصوت:</label>
@@ -164,6 +166,7 @@
 <audio id="fx" preload="auto"></audio>
 
 <script src="js/version.js"></script>
+<script src="js/sounds.js"></script>
 <script src="js/dsp.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/tracks.js"></script>
