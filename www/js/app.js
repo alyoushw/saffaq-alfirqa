@@ -13,7 +13,7 @@
 
   /* ================= التبويبات ================= */
   function showTab(name) {
-    $('scrClip').hidden = name !== 'clip'; $('scrStudio').hidden = name !== 'studio';
+    $('scrClip').hidden = name !== 'clip'; $('scrStudio').hidden = name !== 'studio'; $('pbar').hidden = name !== 'clip' || !C.buffer;
     $('tabClip').setAttribute('aria-selected', name === 'clip'); $('tabStudio').setAttribute('aria-selected', name === 'studio');
     stopClip(); stopStudio();
     if (name === 'clip') drawWave();
@@ -24,8 +24,8 @@
   const saved = store.get('clip1', {});
   const C = {
     file: null, name: '', isVideo: false, buffer: null, ana: null, beats: [], phase: 0, peaks: null, songRms: .1,
-    model: { beats: 4, sub: 4, tracks: Tracks.STYLES.mawlid.tracks() }, style: 'auto', beatMode: 'steady',
-    nudge: 0, from: 0, to: 1e9, clapDb: saved.clapDb ?? 0, loose: saved.loose ?? 10, room: saved.room ?? 1.1, wet: saved.wet ?? 22,
+    model: { beats: 4, sub: 4, tracks: Tracks.STYLES.mawlid.tracks() }, style: 'auto', beatMode: 'steady', songVol: 100, taps: [], tapSens: 50, tapQuant: false, fromMic: false,
+    nudge: 0, from: 0, to: 1e9, clapDb: saved.clapDb ?? 0, songVolSaved: saved.songVol ?? 100, loose: saved.loose ?? 10, room: saved.room ?? 1.1, wet: saved.wet ?? 22,
     events: [], playing: false, pos: 0, t0: 0, idx: 0, timer: null, src: null, songGain: null, chain: null, solo: false, lastUri: null,
   };
   const clipEd = Tracks.editor($('clipTracks'), C.model, {
@@ -46,6 +46,7 @@
 
   function renderStyles() {
     const box = $('styles'); box.innerHTML = '';
+    if (C.ana) { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', C.style === 'taps'); b.innerHTML = `👆 نفس طقّاتي<small>${AR(C.taps.length)} طقة في التسجيل</small>`; b.onclick = () => applyStyle('taps'); box.appendChild(b); }
     { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', C.style === 'auto'); b.innerHTML = '✨ تلقائي<small>من إيقاع المقطع</small>'; b.onclick = () => applyStyle('auto'); box.appendChild(b); }
     for (const [k, s] of Object.entries(Tracks.STYLES)) {
       const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', C.style === k);
@@ -54,7 +55,17 @@
     if (C.style === 'custom') { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', 'true'); b.textContent = 'تشكيلك الخاص'; box.appendChild(b); }
   }
   function applyStyle(k) {
-    C.style = k;
+    C.style = k; $('tapsPanel').hidden = k !== 'taps'; $('editBox').hidden = k === 'taps';
+    if (k === 'taps') {
+      const ppl = +$('tapPeople').value || 5;
+      C.model.tracks.splice(0, C.model.tracks.length,
+        { name: 'الطقة القوية', snd: $('tapStrongSnd').value || 'open', people: ppl, vol: 100, mute: false, cells: [] },
+        { name: 'كل الطقات', snd: $('tapAllSnd').value || 'sharp', people: ppl, vol: 90, mute: false, cells: [] });
+      $('styleWhy').textContent = C.taps.length
+        ? `لقيت ${AR(C.taps.length)} طقة في تسجيلك، وكل طقة صارت صفقة فرقة بنفس مكانها. الطقة القوية تصير صفقة قوية وعميقة، والخفيفة صفقة خفيفة.`
+        : 'ما لقيت طقّات واضحة. ارفع "حساسية التقاط الطقّات"، أو سجّل وأنت تطق أوضح.';
+      renderStyles(); rebuild(); return;
+    }
     if (k === 'auto' && C.ana) {
       const per = C.model.beats, sub = C.model.sub, a = C.ana, bpm = 60 / (median(C.beats.slice(1).map((t, i) => t - C.beats[i])) || .5);
       const r = Tracks.autoTracks(DSP.foldProfile(a.lowFl, a.fps, C.beats, C.phase, per, sub), DSP.foldProfile(a.hiFl, a.fps, C.beats, C.phase, per, sub), per, sub, bpm, a.pulse);
@@ -71,7 +82,7 @@
 
   // ---- المصدر: ملف أو تسجيل
   $('pickBtn').onclick = () => $('fileIn').click();
-  $('fileIn').onchange = e => { const f = e.target.files[0]; if (f) loadSource(f, f.name, (f.type || '').startsWith('video/') || /\.(mp4|mov|3gp|mkv|webm)$/i.test(f.name) && !/audio/.test(f.type)); e.target.value = ''; };
+  $('fileIn').onchange = e => { const f = e.target.files[0]; C.fromMic = false; if (f) loadSource(f, f.name, (f.type || '').startsWith('video/') || /\.(mp4|mov|3gp|mkv|webm)$/i.test(f.name) && !/audio/.test(f.type)); e.target.value = ''; };
   let rec = null;
   $('recBtn').onclick = async () => {
     if (rec) { rec.stop(); return; }
@@ -84,7 +95,7 @@
         clearInterval(tick); stream.getTracks().forEach(t => t.stop()); rec = null;
         $('recBtn').classList.remove('on'); $('recLbl').textContent = 'سجّل الحين'; $('recTime').textContent = 'بالمايك';
         const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
-        if (blob.size) loadSource(blob, 'تسجيل ' + new Date().toLocaleTimeString('ar'), false);
+        if (blob.size) { C.fromMic = true; loadSource(blob, 'تسجيل ' + new Date().toLocaleTimeString('ar'), false); }
       };
       mr.start(500); rec = mr; $('recBtn').classList.add('on'); $('recLbl').textContent = 'جاري التسجيل…';
     } catch (err) { status($('clipStatus'), 'ما قدرت أفتح المايك. اسمح للتطبيق باستخدام المايكروفون من إعدادات الجوال.', 'err'); }
@@ -122,8 +133,11 @@
     for (const id of ['anaCard', 'styleCard', 'playCard', 'expCard']) $(id).hidden = false;
     $('expVideo').hidden = !isVideo || !IO.native; $('shareBtn').hidden = true; status($('expStatus'), '');
     $('fixBox').open = false;
+    C.taps = DSP.detectTaps(ana, C.tapSens);
+    if (C.fromMic && C.taps.length >= 6) C.style = 'taps';
+    $('pbar').hidden = false; C.songVol = C.songVolSaved; syncCtrls();
     if (ana.meter !== C.model.beats) { Tracks.resize(C.model.tracks, C.model.beats, C.model.sub, ana.meter, C.model.sub); C.model.beats = ana.meter; $('meter').value = String(ana.meter); resetBeats(); }
-    applyStyle(C.style === 'custom' ? 'auto' : C.style); drawWave();
+    applyStyle(C.style === 'custom' || (C.style === 'taps' && !C.fromMic && C.taps.length < 6) ? 'auto' : C.style); drawWave();
   }
   function resetBeats() {
     C.beats = (C.beatMode === 'follow' ? C.ana.follow : C.ana.steady).slice(); C.phase = C.ana.phaseOf(C.beats, C.model.beats);
@@ -142,6 +156,18 @@
   function rebuild() {
     const ev = [], per = C.model.beats, sub = C.model.sub, b = C.beats; if (!b.length) { C.events = ev; return; }
     const ibi = median(b.slice(1).map((t, i) => t - b[i])) || .5, nd = C.nudge / 1000;
+    if (C.style === 'taps') {
+      // نفس طقّاتك: صفقة مكان كل طقة، والقوية أقوى
+      const grid = []; if (C.tapQuant) for (let i = 0; i < b.length; i++) { const nx = b[i + 1] ?? b[i] + ibi; for (let q = 0; q < 4; q++) grid.push(b[i] + (nx - b[i]) * q / 4); }
+      for (const tp of C.taps) {
+        let t = tp.t; if (grid.length) { let best = grid[0]; for (const g of grid) if (Math.abs(g - t) < Math.abs(best - t)) best = g; t = best; }
+        t -= nd; if (t < C.from - .001 || t > C.to || t < 0) continue;
+        const strong = tp.s >= .6; const [A, B] = C.model.tracks;
+        if (A && !A.mute && strong) ev.push({ t, ti: 0, v: 2, slot: -1 });
+        if (B && !B.mute) ev.push({ t, ti: 1, v: strong ? 2 : 1, slot: -1 });
+      }
+      ev.sort((x, y) => x.t - y.t); C.events = ev; updateDiag(); refreshMix(); saveClip(); drawWave(); return;
+    }
     for (let i = 0; i < b.length; i++) {
       const barPos = ((i - C.phase) % per + per) % per, nx = b[i + 1] ?? b[i] + ibi;
       for (let s = 0; s < sub; s++) {
@@ -155,7 +181,7 @@
     saveClip(); drawWave();
   }
   const lowerBound = (ev, t) => { let lo = 0, hi = ev.length; while (lo < hi) { const m = (lo + hi) >> 1; if (ev[m].t < t) lo = m + 1; else hi = m; } return lo; };
-  function saveClip() { store.set('clip1', { clapDb: C.clapDb, loose: C.loose, room: C.room, wet: C.wet }); }
+  function saveClip() { store.set('clip1', { clapDb: C.clapDb, loose: C.loose, room: C.room, wet: C.wet, songVol: C.songVol }); }
 
   // ---- الرسم
   function drawWave() {
@@ -171,6 +197,7 @@
     for (let i = 0; i < N; i++) { const x = W - (i + 1) / N * W; const a = pk[2 * i] / mx, b = pk[2 * i + 1] / mx; g.fillRect(x, H / 2 - b * H * .42, Math.max(1, W / N), Math.max(1, (b - a) * H * .42)); }
     const per = C.model.beats;
     C.beats.forEach((t, i) => { const down = ((i - C.phase) % per + per) % per === 0; g.fillStyle = col(down ? '--down' : '--beat'); g.globalAlpha = down ? .95 : .55; g.fillRect(X(t) - (down ? 1 : .5), down ? 0 : H * .78, down ? 2 : 1, down ? H : H * .22); });
+    if (C.style === 'taps') { g.globalAlpha = 1; g.fillStyle = col('--accent'); for (const tp of C.taps) { g.beginPath(); g.arc(X(tp.t), 9, 2.5 + tp.s * 4, 0, 7); g.fill(); } }
     g.globalAlpha = 1;
     const p = C.playing ? curPos() : C.pos; if (p > 0) { g.fillStyle = col('--ink'); g.fillRect(X(p) - 1, 0, 2, H); }
   }
@@ -193,18 +220,18 @@
   let mixUrl = null, mixKey = '', mixBusy = null, refreshT = null;
   const curPos = () => C.playing ? player.currentTime : C.pos;
   function clapGain() { return Math.pow(10, C.clapDb / 20) * Math.max(.6, Math.min(2.5, C.songRms / .08)) * .9; }
-  const mixKeyNow = () => JSON.stringify([C.name, C.beats.length, C.beats[0], C.phase, C.model, C.nudge, C.from, C.to, C.clapDb, C.loose, C.room, C.wet, C.solo]);
+  const mixKeyNow = () => JSON.stringify([C.name, C.beats.length, C.beats[0], C.phase, C.model, C.nudge, C.from, C.to, C.clapDb, C.loose, C.room, C.wet, C.songVol, C.style, C.taps.length, C.tapQuant]);
   async function ensureMix() {
     const k = mixKeyNow(); if (mixUrl && k === mixKey) return mixUrl;
     if (mixBusy) await mixBusy;
     if (mixUrl && mixKeyNow() === mixKey) return mixUrl;
-    const btn = $('playBtn'); const prevTxt = btn.textContent; btn.textContent = '⏳ جاري التجهيز…'; btn.disabled = true;
+    const btn = $('playBtn'); btn.textContent = '⏳'; btn.disabled = true;
     mixBusy = (async () => {
-      const buf = await renderClip(!C.solo); const bytes = Engine.wav(buf);
+      const buf = await renderClip(true); const bytes = Engine.wav(buf);
       if (mixUrl) URL.revokeObjectURL(mixUrl);
       mixUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })); mixKey = k;
     })();
-    try { await mixBusy; } finally { mixBusy = null; btn.disabled = false; btn.textContent = C.playing ? '■ إيقاف' : prevTxt.startsWith('⏳') ? '▶ تشغيل' : prevTxt; }
+    try { await mixBusy; } finally { mixBusy = null; btn.disabled = false; btn.textContent = C.playing ? '■' : '▶'; }
     return mixUrl;
   }
   async function playClip(from) {
@@ -217,7 +244,7 @@
     C.playing = true;
     const v = $('vid'); if (C.isVideo) { try { v.muted = true; v.currentTime = from || 0; v.play(); } catch (e) { } }
     requestAnimationFrame(frameClip);
-    $('playBtn').textContent = '■ إيقاف'; $('playBtn').classList.add('on');
+    $('playBtn').textContent = '■'; $('playBtn').classList.add('on');
   }
   player.onended = () => { if (C.playing) stopClip(true); };
   // أي تعديل وقت التشغيل: نجهّز من جديد ونكمل من نفس المكان
@@ -236,10 +263,10 @@
   function stopClip(ended) {
     if (!C.playing) return; C.playing = false; clearTimeout(refreshT);
     C.pos = ended ? 0 : player.currentTime; try { player.pause(); } catch (e) { } const v = $('vid'); try { v.pause(); } catch (e) { }
-    clipEd.highlight(-1); $('playBtn').textContent = '▶ تشغيل'; $('playBtn').classList.remove('on'); drawWave();
+    clipEd.highlight(-1); $('playBtn').textContent = '▶'; $('playBtn').classList.remove('on'); drawWave();
   }
   $('playBtn').onclick = () => C.playing ? stopClip() : playClip(C.pos >= C.buffer.duration - .2 ? 0 : C.pos);
-  $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); $('soloBtn').textContent = C.solo ? '🔇 المقطع مكتوم (اضغط ترجّعه)' : 'الصفقة لحالها'; refreshMix(); };
+  $('songVol').oninput = e => { C.songVol = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
 
   // ---- إصلاح الإيقاع
   $('dblBtn').onclick = () => { C.beats = DSP.doubleBeats(C.beats); C.phase = (C.phase * 2) % C.model.beats; updateStats(); reAuto(); toast('صارت السرعة الضعف'); };
@@ -268,7 +295,7 @@
   function syncCtrls() {
     $('nudge').value = C.nudge; $('nudgeO').textContent = (C.nudge > 0 ? 'أبكر ' : C.nudge < 0 ? 'أبطأ ' : '') + AR(Math.abs(C.nudge)) + ' م.ث';
     $('fromO').textContent = fmtT(C.from); $('toO').textContent = fmtT(Math.min(C.to, C.buffer ? C.buffer.duration : 0));
-    $('clapLvl').value = C.clapDb; $('clapLvlO').textContent = (C.clapDb > 0 ? '+' : '') + AR(C.clapDb) + ' dB';
+    $('songVol').value = C.songVol; $('songVolO').textContent = C.songVol ? AR(C.songVol) + '٪' : 'مكتوم'; $('clapLvl').value = C.clapDb; $('clapLvlO').textContent = (C.clapDb > 0 ? '+' : '') + AR(C.clapDb) + ' dB';
     $('loose').value = C.loose; $('looseO').textContent = AR(C.loose) + ' م.ث';
     $('room').value = String(C.room); $('wet').value = C.wet; $('wetO').textContent = AR(C.wet) + '٪';
   }
@@ -280,12 +307,21 @@
   $('room').onchange = e => { C.room = +e.target.value; saveClip(); refreshMix(); };
   $('wet').oninput = e => { C.wet = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
   $('clipAdd').onclick = () => clipEd.addTrack();
+  for (const id of ['tapStrongSnd', 'tapAllSnd']) { const sel = $(id); for (const s of Engine.LIB) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; sel.appendChild(o); } }
+  $('tapStrongSnd').value = 'open'; $('tapAllSnd').value = 'sharp';
+  const tapSync = () => { $('tapPeopleO').textContent = AR($('tapPeople').value); $('tapSensO').textContent = AR($('tapSens').value) + '٪'; };
+  $('tapStrongSnd').onchange = () => { if (C.model.tracks[0]) C.model.tracks[0].snd = $('tapStrongSnd').value; rebuild(); };
+  $('tapAllSnd').onchange = () => { if (C.model.tracks[1]) C.model.tracks[1].snd = $('tapAllSnd').value; rebuild(); };
+  $('tapPeople').oninput = () => { tapSync(); C.model.tracks.forEach(t => t.people = +$('tapPeople').value); rebuild(); };
+  let sensT = null; $('tapSens').oninput = () => { tapSync(); clearTimeout(sensT); sensT = setTimeout(() => { if (!C.ana) return; C.tapSens = +$('tapSens').value; C.taps = DSP.detectTaps(C.ana, C.tapSens); applyStyle('taps'); }, 300); };
+  $('tapQuant').onchange = () => { C.tapQuant = $('tapQuant').checked; rebuild(); };
+  tapSync();
   document.querySelectorAll('#beatMode .chip').forEach(b => b.onclick = () => { if (!C.ana) return; C.beatMode = b.dataset.m; resetBeats(); reAuto(); toast(C.beatMode === 'steady' ? 'الإيقاع ثابت طول المقطع' : 'الإيقاع يتبع المنشد'); });
 
   // ---- التصدير
   async function renderClip(withSong) {
     const dur = C.buffer.duration, oc = new OfflineAudioContext(2, Math.ceil(dur * Engine.SR), Engine.SR);
-    if (withSong) { const s = oc.createBufferSource(); s.buffer = C.buffer; s.connect(oc.destination); s.start(0); }
+    if (withSong && C.songVol > 0) { const s = oc.createBufferSource(); s.buffer = C.buffer; const g = oc.createGain(); g.gain.value = C.songVol / 100; s.connect(g).connect(oc.destination); s.start(0); }
     const ch = Engine.makeChain(oc, { room: C.room, wet: C.wet, clapGain: clapGain() });
     for (const e of C.events) Engine.hit(C.model.tracks[e.ti], e.v, e.t, oc, ch, e.ti, C.model.tracks.length, C.loose);
     return oc.startRendering();

@@ -206,6 +206,36 @@ const DSP = (() => {
     }
     return n ? on / (off || 1e-9) : 0;
   }
+  // الطقّات: نلقط كل طقة (صفقة أو طق على طاولة) بمكانها وقوتها
+  function attackEnv(x, sr = AR_SR) {
+    const h = 32, n = Math.floor(x.length / h), e = new Float32Array(n); let hp = 0, px = 0;
+    for (let i = 0; i < n; i++) { let s = 0; for (let k = 0; k < h; k++) { const v = x[i * h + k]; hp = 0.95 * (hp + v - px); px = v; s += hp * hp; } e[i] = Math.log1p(1e4 * s / h); }
+    const d = new Float32Array(n); for (let i = 3; i < n; i++) d[i] = Math.max(0, e[i] - e[i - 3]);
+    return { d, rate: sr / h };
+  }
+  function detectTaps(a, sens = 50) {
+    const n = a.hiFl.length, fl = new Float32Array(n);
+    for (let i = 0; i < n; i++) fl[i] = a.hiFl[i] + 0.5 * a.lowFl[i];
+    const srt = Array.from(fl).sort((x, y) => x - y), med = srt[Math.floor(n * .5)], top = srt[Math.floor(n * .985)] || 1;
+    const th = med + (top - med) * (0.85 - sens / 100 * 0.7), gap = Math.round(0.09 * a.fps), W = 4;
+    const taps = []; let last = -1e9;
+    for (let i = W; i < n - W; i++) {
+      if (fl[i] < th) continue; let mx = true; for (let k = -W; k <= W; k++) if (fl[i + k] > fl[i]) { mx = false; break; }
+      if (!mx || i - last < gap) continue; last = i; taps.push({ f: i, v: fl[i] });
+    }
+    // مكان دقيق للطقة من الهجمة الحادة
+    const A = a.att, W2 = Math.round(0.05 * A.rate), out = [];
+    for (const tp of taps) {
+      const t0 = tp.f / a.fps - LATENCY, c = Math.round(t0 * A.rate); let bi = c, bv = -1;
+      for (let k = -W2; k <= Math.round(W2 * .6); k++) { const v = A.d[c + k] || 0; if (v > bv) { bv = v; bi = c + k; } }
+      // قوة الطقة: أعلى قمة حادة (بعد إزالة الترددات المنخفضة للصوت) خلال ٣٠ م.ث
+      const t = Math.max(0, bi / A.rate - 0.004), x = a.x, i0 = Math.floor(t * AR_SR); let pk = 0;
+      for (let i = Math.max(1, i0); i < Math.min(x.length, i0 + Math.round(.03 * AR_SR)); i++) { const d = Math.abs(x[i] - x[i - 1]); if (d > pk) pk = d; }
+      out.push({ t, v: pk });
+    }
+    const vs = out.map(o => o.v).sort((x, y) => x - y), ref = vs[Math.floor(vs.length * .9)] || 1;
+    return out.map(o => ({ t: o.t, s: Math.min(1, o.v / ref) }));
+  }
   async function analyze(buffer, onProgress) {
     const x = await toMono22k(buffer);
     const { env, low, hi, fps } = onsetEnvelope(x, p => onProgress && onProgress(0.1 + 0.55 * p));
@@ -226,7 +256,7 @@ const DSP = (() => {
     const phaseOf = (b, per) => { let bp = 0, bv = -1; for (let ph = 0; ph < per; ph++) { const pr = foldProfile(lowFl, fps, b, ph, per, 4).prof; let o = 0; for (let k = 1; k < per; k++) o += pr[k * 4]; const v = pr[0] - o / Math.max(1, per - 1); if (v > bv) { bv = v; bp = ph; } } return bp; };
     onProgress && onProgress(1);
     return { beats: steady, steady, follow, bpm: 60 * fps / g.period, phase: phaseOf(steady, meter), meter, env, fps, low, lowFl, hiFl, phaseOf,
-      conf: confidence(steady, env, fps), pulse: pulseStrength(lowFl, hiFl, fps, steady) };
+      att: attackEnv(x), x, conf: confidence(steady, env, fps), pulse: pulseStrength(lowFl, hiFl, fps, steady) };
   }
 
   // من نقرات المستخدم: سرعة ثابتة وبداية
@@ -247,6 +277,6 @@ const DSP = (() => {
   function doubleBeats(b) { const o = []; for (let i = 0; i < b.length - 1; i++) { o.push(b[i], (b[i] + b[i + 1]) / 2); } o.push(b[b.length - 1]); return o; }
   function halveBeats(b, offset = 0) { return b.filter((_, i) => i % 2 === offset); }
 
-  return { analyze, foldProfile, steadyGrid, smoothBeats, refineOffset, fromTaps, doubleBeats, halveBeats, downbeatPhase, toMono22k, onsetEnvelope, estimatePeriod, trackBeats, median };
+  return { analyze, detectTaps, foldProfile, steadyGrid, smoothBeats, refineOffset, fromTaps, doubleBeats, halveBeats, downbeatPhase, toMono22k, onsetEnvelope, estimatePeriod, trackBeats, median };
 })();
 if (typeof window !== 'undefined') window.DSP = DSP;

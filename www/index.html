@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>صفّاق الفرقة</title>
-<link rel="stylesheet" href="css/app.css?v=106">
+<link rel="stylesheet" href="css/app.css?v=107">
 <script>
 // صندوق الأخطاء: يظهر على الشاشة عشان نعرف وش صار في الجوال
 window.__errs=[];
@@ -58,12 +58,12 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
     </div>
     <details id="fixBox">
       <summary>الإيقاع مو مضبوط؟ صلّحه</summary>
-      <div class="row">
-        <button class="ghost" id="dblBtn">السرعة ×٢</button>
-        <button class="ghost" id="halfBtn">السرعة ÷٢</button>
-        <button class="ghost" id="phaseBtn">حرّك بداية المازورة</button>
-        <button class="ghost" id="tapBtn">اضبط بالنقر مع الإيقاع</button>
-        <button class="ghost" id="reBtn">ارجع للتحليل الأصلي</button>
+      <div class="fixes">
+        <button class="fix" id="dblBtn"><b>السرعة ×٢</b><small>إذا الصفقة أبطأ من الإنشاد بالنص</small></button>
+        <button class="fix" id="halfBtn"><b>السرعة ÷٢</b><small>إذا الصفقة أسرع من الإنشاد بالضعف</small></button>
+        <button class="fix" id="phaseBtn"><b>حرّك بداية المازورة</b><small>إذا الصفقة القوية جات في مكان غلط</small></button>
+        <button class="fix" id="tapBtn"><b>اضبط بالنقر</b><small>المقطع يشتغل وأنت تنقر مع الإيقاع، والتطبيق يمشي على نقرك</small></button>
+        <button class="fix" id="reBtn"><b>ارجع للأصل</b><small>يلغي كل التعديلات اللي فوق</small></button>
       </div>
       <div class="ctrls" style="margin-top:12px">
         <div class="ctrl"><label for="nudge">تقديم / تأخير الصفقة <output id="nudgeO"></output></label><input type="range" id="nudge" min="-120" max="120" step="2" value="0"><span class="hint">إذا حسيت الصفقة متأخرة حرّكها لليمين (أبكر)</span></div>
@@ -77,11 +77,20 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
     <h2><span class="n">٣</span>شكل الصفقة</h2>
     <div class="chips" id="styles"></div>
     <p class="hint" id="styleWhy"></p>
+    <div class="tapsPanel" id="tapsPanel" hidden>
+      <div class="ctrls">
+        <div class="ctrl"><label for="tapStrongSnd">الطقة القوية تصير</label><select id="tapStrongSnd"></select></div>
+        <div class="ctrl"><label for="tapAllSnd">وكل الطقات تصير</label><select id="tapAllSnd"></select></div>
+        <div class="ctrl"><label for="tapPeople">عدد المصفقين <output id="tapPeopleO"></output></label><input type="range" id="tapPeople" min="1" max="12" value="5"></div>
+        <div class="ctrl"><label for="tapSens">حساسية التقاط الطقّات <output id="tapSensO"></output></label><input type="range" id="tapSens" min="0" max="100" value="50"><span class="hint">إذا فاتته طقات ارفعها، وإذا التقط أصوات زايدة نزّلها</span></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="tapQuant"> رتّب الطقات على الإيقاع (إذا طقّك مو مضبوط مية بالمية)</label>
+    </div>
     <div class="row">
       <label for="meter">ضربات المازورة:</label>
       <select id="meter"><option value="4" selected>٤ (رباعي)</option><option value="3">٣ (ثلاثي)</option><option value="2">٢ (ثنائي)</option></select>
     </div>
-    <details>
+    <details id="editBox">
       <summary>عدّل الأشخاص والتشكيل بنفسك</summary>
       <p class="hint">كل سطر شخص: اختر صفقته وكم واحد يسويها، واضغط المربعات (ضغطة = عادية، ضغطتين = قوية، ثلاث = مسح). السطر = مازورة وحدة تتكرر على المقطع كامل.</p>
       <div class="tracks" id="clipTracks"></div>
@@ -90,15 +99,10 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
   </section>
 
   <section class="card" id="playCard" hidden>
-    <h2><span class="n">٤</span>اسمع</h2>
-    <div class="row">
-      <button class="btn" id="playBtn">▶ تشغيل</button>
-      <button class="ghost" id="soloBtn" aria-pressed="false">الصفقة لحالها</button>
-      <span class="file" id="timeLbl"></span>
-    </div>
+    <h2><span class="n">٤</span>إحساس الصفقة</h2>
+    <p class="hint">التشغيل وصوت المنشد وصوت الصفقة في الشريط اللي تحت، ويبقى ظاهر وأنت تعدّل.</p>
     <div class="diag" id="diag">جاري فحص أصوات الصفقة…</div>
     <div class="ctrls">
-      <div class="ctrl"><label for="clapLvl">قوة الصفقة <output id="clapLvlO"></output></label><input type="range" id="clapLvl" min="-24" max="12" step="1" value="0"></div>
       <div class="ctrl"><label for="loose">تفاوت الأيادي <output id="looseO"></output></label><input type="range" id="loose" min="0" max="35" step="1" value="10"><span class="hint">٠ = مثل الآلة، ١٠ = طبيعي</span></div>
       <div class="ctrl"><label for="room">المكان</label><select id="room"><option value="0">بدون صدى</option><option value="0.35">غرفة صغيرة</option><option value="1.1" selected>قاعة</option><option value="2.4">مسجد / قبّة</option></select></div>
       <div class="ctrl"><label for="wet">كمية الصدى <output id="wetO"></output></label><input type="range" id="wet" min="0" max="100" step="1" value="22"></div>
@@ -161,6 +165,16 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
   </section>
 </main>
 
+<div class="pbar" id="pbar" hidden>
+  <div class="prow">
+    <button class="pbtn" id="playBtn" aria-label="تشغيل">▶</button>
+    <div class="pvols">
+      <label class="pv"><span>🎤 المنشد <output id="songVolO"></output></span><input type="range" id="songVol" min="0" max="150" step="5" value="100"></label>
+      <label class="pv"><span>👏 الصفقة <output id="clapLvlO"></output></span><input type="range" id="clapLvl" min="-24" max="12" step="1" value="0"></label>
+    </div>
+  </div>
+  <div class="ptime" id="timeLbl">٠:٠٠</div>
+</div>
 <nav class="tabs" role="tablist">
   <button role="tab" id="tabClip" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>صفقة على مقطع</button>
   <button role="tab" id="tabStudio" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16M15 4v16"/></svg>الاستوديو</button>
@@ -177,14 +191,14 @@ window.addEventListener('unhandledrejection',function(e){var r=e.reason;__showEr
 <audio id="splayer" preload="auto"></audio>
 <audio id="fx" preload="auto"></audio>
 
-<script src="js/capacitor.js?v=106"></script>
-<script src="js/version.js?v=106"></script>
-<script src="js/sounds.js?v=106"></script>
-<script src="js/dsp.js?v=106"></script>
-<script src="js/engine.js?v=106"></script>
-<script src="js/tracks.js?v=106"></script>
-<script src="js/io.js?v=106"></script>
-<script src="js/app.js?v=106"></script>
-<script src="js/updater.js?v=106"></script>
+<script src="js/capacitor.js?v=107"></script>
+<script src="js/version.js?v=107"></script>
+<script src="js/sounds.js?v=107"></script>
+<script src="js/dsp.js?v=107"></script>
+<script src="js/engine.js?v=107"></script>
+<script src="js/tracks.js?v=107"></script>
+<script src="js/io.js?v=107"></script>
+<script src="js/app.js?v=107"></script>
+<script src="js/updater.js?v=107"></script>
 </body>
 </html>
