@@ -1,5 +1,9 @@
 # صفّاق الفرقة
 
+**تحميل آخر إصدار:** https://github.com/alyoushw/saffaq-alfirqa/releases/latest/download/saffaq-alfirqa.apk
+
+التطبيق ينبّه بنفسه إذا نزل إصدار جديد، وتقدر تحدّثه من داخله.
+
 تطبيق أندرويد يولّد صفقة الأيادي للفرق الإنشادية.
 
 ## وش يسوي
@@ -31,3 +35,8 @@ cd android && ./gradlew assembleDebug
 ```
 
 يحتاج Java 21 وAndroid SDK 35.
+
+## النشر التلقائي
+
+كل تعديل يُرفع على `main` يبنيه GitHub Actions (`.github/workflows/release.yml`) ويوقّعه، ثم ينشره كإصدار جديد. والتطبيق يتأكد من آخر إصدار عند كل فتح.
+يحتاج سر واحد في المستودع: `SIGNING_PASSWORD` (كلمة سر فك تشفير `android/release.keystore.enc`).

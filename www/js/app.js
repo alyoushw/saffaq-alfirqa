@@ -160,9 +160,11 @@
 
   // ---- التشغيل
   const curPos = () => C.playing ? C.pos + (Engine.ctx().currentTime - C.t0) : C.pos;
-  function clapGain() { return Math.pow(10, C.clapDb / 20) * Math.max(.3, Math.min(2.5, C.songRms / .08)) * .8; }
-  function playClip(from) {
-    if (!C.buffer) return; const c = Engine.audio();
+  function clapGain() { return Math.pow(10, C.clapDb / 20) * Math.max(.6, Math.min(2.5, C.songRms / .08)) * .9; }
+  async function playClip(from) {
+    if (!C.buffer) return; const c = await Engine.ready();
+    if (c.state !== 'running') { toast('الصوت مقفل. اضغط تشغيل مرة ثانية.'); return; }
+    if (!Object.keys(Engine.bank).length || !(Engine.bank.open || []).length) { try { await Engine.loadBank(); } catch (e) { toast('أصوات الصفقة ما تحمّلت'); } }
     C.chain = Engine.makeChain(c, { room: C.room, wet: C.wet, clapGain: clapGain() });
     const src = c.createBufferSource(); src.buffer = C.buffer; const sg = c.createGain(); sg.gain.value = C.solo ? 0 : 1; src.connect(sg).connect(c.destination);
     C.t0 = c.currentTime + .08; C.pos = from || 0; src.start(C.t0, C.pos); C.src = src; C.songGain = sg; C.playing = true;
@@ -195,7 +197,7 @@
   }
   function curPosFrozen() { const c = Engine.ctx(); return c ? Math.max(0, C.pos + (c.currentTime - C.t0)) : 0; }
   $('playBtn').onclick = () => C.playing ? stopClip() : playClip(C.pos >= C.buffer.duration - .2 ? 0 : C.pos);
-  $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); if (C.songGain) C.songGain.gain.value = C.solo ? 0 : 1; if (C.isVideo) $('vid').muted = true; };
+  $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); $('soloBtn').textContent = C.solo ? '🔇 المقطع مكتوم (اضغط ترجّعه)' : 'الصفقة لحالها'; if (C.songGain) C.songGain.gain.value = C.solo ? 0 : 1; if (C.isVideo) $('vid').muted = true; };
 
   // ---- إصلاح الإيقاع
   $('dblBtn').onclick = () => { C.beats = DSP.doubleBeats(C.beats); C.phase = (C.phase * 2) % C.model.beats; updateStats(); rebuild(); toast('صارت السرعة الضعف'); };
@@ -330,9 +332,9 @@
   }
   function frameStudio() { if (!S.playing) return; const c = Engine.ctx(); let cur = null; while (S.queue.length && S.queue[0].t <= c.currentTime) cur = S.queue.shift(); if (cur) sEd.highlight(cur.s); requestAnimationFrame(frameStudio); }
   function stopStudio() { if (!S.playing) return; S.playing = false; clearInterval(S.timer); S.queue = []; sEd.highlight(-1); $('sPlay').textContent = '▶ تشغيل الكل'; $('sPlay').classList.remove('on'); const ch = S.chain; setTimeout(() => { try { ch.bus.disconnect(); } catch (e) { } }, 1500); }
-  $('sPlay').onclick = () => {
+  $('sPlay').onclick = async () => {
     if (S.playing) { stopStudio(); return; }
-    const c = Engine.audio(); S.chain = Engine.makeChain(c, { room: S.room, wet: S.wet, clapGain: .9 });
+    const c = await Engine.ready(); S.chain = Engine.makeChain(c, { room: S.room, wet: S.wet, clapGain: .9 });
     S.playing = true; S.step = 0; S.queue = []; S.nextT = c.currentTime + .06; S.timer = setInterval(schedStudio, 25); schedStudio(); requestAnimationFrame(frameStudio);
     $('sPlay').textContent = '■ إيقاف'; $('sPlay').classList.add('on');
   };

@@ -2,6 +2,11 @@ package com.taqweemalzahra.saffaq;
 
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.Intent;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
@@ -244,6 +249,56 @@ public class MediaToolsPlugin extends Plugin {
                 JSObject r = new JSObject(); r.put("location", location); call.resolve(r);
             } catch (Exception e) {
                 call.reject("save failed: " + e.getMessage(), e);
+            }
+        }).start();
+    }
+
+    /** تنزيل نسخة جديدة من التطبيق وفتح شاشة التثبيت. */
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        final String url = call.getString("url");
+        if (url == null) { call.reject("url is required"); return; }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            Intent i = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.reject("اسمح للتطبيق بتثبيت التحديثات ثم اضغط حدّث مرة ثانية", "NEED_PERMISSION");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getCacheDir(), "updates");
+                if (!dir.exists()) dir.mkdirs();
+                File apk = new File(dir, "saffaq-update.apk");
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(20000); c.setReadTimeout(60000);
+                int code = c.getResponseCode();
+                // متابعة التحويل يدوياً إذا لزم
+                for (int hops = 0; (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && hops < 5; hops++) {
+                    String loc = c.getHeaderField("Location"); c.disconnect();
+                    c = (HttpURLConnection) new URL(loc).openConnection(); c.setConnectTimeout(20000); c.setReadTimeout(60000);
+                    code = c.getResponseCode();
+                }
+                if (code != 200) throw new IOException("HTTP " + code);
+                long total = c.getContentLengthLong(), got = 0; long lastEmit = 0;
+                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
+                    byte[] b = new byte[65536]; int n;
+                    while ((n = in.read(b)) > 0) {
+                        out.write(b, 0, n); got += n;
+                        long now = System.currentTimeMillis();
+                        if (total > 0 && now - lastEmit > 250) { lastEmit = now; JSObject ev = new JSObject(); ev.put("progress", (double) got / total); notifyListeners("updateProgress", ev); }
+                    }
+                }
+                c.disconnect();
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(uri, "application/vnd.android.package-archive");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("update failed: " + e.getMessage(), e);
             }
         }).start();
     }

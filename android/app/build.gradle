@@ -7,8 +7,8 @@ android {
         applicationId "com.taqweemalzahra.saffaq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode((project.findProperty('appVersionCode') ?: '100') as int)
+        versionName(project.findProperty('appVersionName') ?: '1.0.0')
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +16,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            // المفتاح يُفك تشفيره في GitHub Actions من android/release.keystore.enc
+            def ks = file('release.keystore')
+            if (ks.exists() && System.getenv('SIGNING_PASSWORD')) {
+                storeFile ks
+                storePassword System.getenv('SIGNING_PASSWORD')
+                keyAlias 'saffaq'
+                keyPassword System.getenv('SIGNING_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release.storeFile ? signingConfigs.release : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

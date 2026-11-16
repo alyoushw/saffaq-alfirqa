@@ -24,9 +24,19 @@ const Engine = (() => {
   const profiles = [...Array(MAXP)].map(() => ({ rate: rnd(.94, 1.06), gain: rnd(.65, 1), pan: rnd(-.85, .85), off: gauss() * .8 }));
 
   function audio() {
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SR, latencyHint: 'interactive' });
-    if (ctx.state === 'suspended') ctx.resume();
+    // نستخدم تردد الجوال نفسه: فرض تردد مختلف يطلع صوت صامت في بعض أجهزة أندرويد
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
+    if (ctx.state !== 'running') ctx.resume().catch(() => { });
     return ctx;
+  }
+
+  // تشغيل المحرّك والتأكد إنه يشتغل فعلاً
+  async function ready() {
+    const c = audio();
+    if (c.state !== 'running') { try { await c.resume(); } catch (e) { } }
+    // نبضة صامتة قصيرة تفتح مخرج الصوت في أندرويد
+    const b = c.createBuffer(1, 256, c.sampleRate), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start();
+    return c;
   }
 
   async function loadBank(onProgress) {
@@ -91,6 +101,6 @@ const Engine = (() => {
     return new Uint8Array(ab);
   }
 
-  return { SR, LIB, bank, profiles, audio, loadBank, makeChain, makeIR, hit, wav, rnd, gauss, ctx: () => ctx };
+  return { SR, LIB, bank, profiles, audio, ready, loadBank, makeChain, makeIR, hit, wav, rnd, gauss, ctx: () => ctx };
 })();
 window.Engine = Engine;

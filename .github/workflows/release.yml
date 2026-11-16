@@ -1,0 +1,82 @@
+name: بناء ونشر التطبيق
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'www/**'
+      - 'android/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: الأرقام
+        id: ver
+        run: |
+          CODE=$((100 + GITHUB_RUN_NUMBER))
+          NAME="1.0.${GITHUB_RUN_NUMBER}"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "window.APP_VERSION = { code: $CODE, name: '$NAME' };" > www/js/version.js
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: تثبيت الحزم ومزامنة أندرويد
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: فك مفتاح التوقيع
+        env:
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$SIGNING_PASSWORD" ]; then
+            echo "::error::أضف السر SIGNING_PASSWORD في Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -in android/release.keystore.enc -out android/app/release.keystore -pass env:SIGNING_PASSWORD
+
+      - name: بناء APK
+        env:
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease -PappVersionCode=${{ steps.ver.outputs.code }} -PappVersionName=${{ steps.ver.outputs.name }} --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../saffaq-alfirqa.apk
+
+      - name: ملاحظات الإصدار
+        run: |
+          git log -1 --format=%B | grep -v -E '^(Co-Authored-By|Claude-Session):' > notes.txt
+
+      - name: نشر الإصدار
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.name }}-c${{ steps.ver.outputs.code }}
+          name: ${{ steps.ver.outputs.name }}
+          body_path: notes.txt
+          files: saffaq-alfirqa.apk
+          make_latest: true
