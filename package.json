@@ -1,0 +1,19 @@
+{
+  "name": "saffaq-alfirqa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "صفّاق الفرقة: توليد صفقة الأيادي للإنشاد",
+  "scripts": {
+    "sync": "cap sync android",
+    "apk": "cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.6.10",
+    "@capacitor/core": "^7.6.10",
+    "@capacitor/filesystem": "^7.1.9",
+    "@capacitor/share": "^7.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.6.10"
+  }
+}

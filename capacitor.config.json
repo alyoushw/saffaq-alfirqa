@@ -1,0 +1,11 @@
+{
+  "appId": "com.taqweemalzahra.saffaq",
+  "appName": "صفّاق الفرقة",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "force",
+    "backgroundColor": "#1F5C4D"
+  },
+  "backgroundColor": "#1F5C4D"
+}
