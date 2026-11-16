@@ -8,3 +8,4 @@ android/local.properties
 android/app/release.keystore
 *.keystore
 !android/release.keystore.enc
+!download/saffaq-alfirqa.apk
