@@ -38,7 +38,8 @@ const DSP = (() => {
     const nb = 64, edges = [];
     for (let b = 0; b <= nb; b++) edges.push(Math.min(NFFT / 2, Math.max(1, Math.round(Math.exp(Math.log(30) + (Math.log(8000) - Math.log(30)) * b / nb) / AR_SR * NFFT))));
     const lowHi = Math.round(250 / AR_SR * NFFT);
-    const env = new Float32Array(nFrames), low = new Float32Array(nFrames);
+    const env = new Float32Array(nFrames), low = new Float32Array(nFrames), hi = new Float32Array(nFrames);
+    const hiLo = Math.round(2000 / AR_SR * NFFT);
     let prev = new Float32Array(nb), cur = new Float32Array(nb);
     const re = new Float64Array(NFFT), im = new Float64Array(NFFT); let gmax = -1e9;
     for (let f = 0; f < nFrames; f++) {
@@ -48,6 +49,7 @@ const DSP = (() => {
       let lowE = 0;
       for (let k = 1; k < lowHi; k++) lowE += re[k] * re[k] + im[k] * im[k];
       low[f] = lowE;
+      let hiE = 0; for (let k = hiLo; k < NFFT / 2; k++) hiE += re[k] * re[k] + im[k] * im[k]; hi[f] = hiE;
       for (let b = 0; b < nb; b++) {
         let s = 0; const a = edges[b], z = Math.max(a + 1, edges[b + 1]);
         for (let k = a; k < z; k++) s += re[k] * re[k] + im[k] * im[k];
@@ -64,7 +66,7 @@ const DSP = (() => {
     for (let i = 0; i < nFrames; i++) cs[i + 1] = cs[i] + env[i];
     for (let i = 0; i < nFrames; i++) { const a = Math.max(0, i - w), b = Math.min(nFrames, i + w); out[i] = Math.max(0, env[i] - (cs[b] - cs[a]) / (b - a)); acc += out[i] * out[i]; }
     const sd = Math.sqrt(acc / nFrames) || 1; for (let i = 0; i < nFrames; i++) out[i] /= sd;
-    return { env: out, low, fps: AR_SR / HOP };
+    return { env: out, low, hi, fps: AR_SR / HOP };
   }
 
   // السرعة: ارتباط ذاتي بمضاعفات الفترة مع تفضيل لوغاريتمي حول 120 ض/د
@@ -146,21 +148,85 @@ const DSP = (() => {
   }
   const LATENCY = -(NFFT / 2) / AR_SR; // زمن مركز النافذة
 
+  // تدفّق الطاقة (للضربات الثقيلة والحادة)
+  function flux(e) { const o = new Float32Array(e.length); for (let i = 1; i < e.length; i++) { const d = Math.log1p(e[i] * 1e3) - Math.log1p(e[i - 1] * 1e3); o[i] = d > 0 ? d : 0; } return o; }
+  function smooth(env, w) { const n = env.length, o = new Float32Array(n); for (let i = 0; i < n; i++) { let m = 0; for (let k = -w; k <= w; k++) { const v = env[i + k] || 0; if (v > m) m = v; } o[i] = m; } return o; }
+
+  // شبكة ثابتة: سرعة وحدة للمقطع كامل، نختار السرعة والبداية اللي تطابق أكثر ضربات
+  function steadyGrid(env, fps, P) {
+    const n = env.length, e = smooth(env, 1); let best = { s: -1, p: P, ph: 0 };
+    for (let p = P * 0.97; p <= P * 1.03; p += P * 0.0008) {
+      for (let ph = 0; ph < p; ph += 0.5) {
+        let s = 0, c = 0; for (let t = ph; t < n - 1; t += p) { const i = t | 0, f = t - i; s += e[i] * (1 - f) + e[i + 1] * f; c++; }
+        s /= c || 1; if (s > best.s) best = { s, p, ph };
+      }
+    }
+    const out = []; for (let t = best.ph; t < n; t += best.p) out.push(t / fps);
+    return { times: out, period: best.p };
+  }
+  // يتبع المنشد: ضربات التتبع بعد تنعيمها (انحدار خطي متحرك على ٩ ضربات)
+  function smoothBeats(t) {
+    if (t.length < 5) return t.slice();
+    return t.map((_, i) => {
+      const a = Math.max(0, i - 4), b = Math.min(t.length - 1, i + 4); let n = 0, sj = 0, st = 0, sjj = 0, sjt = 0;
+      for (let j = a; j <= b; j++) { n++; sj += j; st += t[j]; sjj += j * j; sjt += j * t[j]; }
+      const k = (n * sjt - sj * st) / (n * sjj - sj * sj), c = (st - k * sj) / n; return c + k * i;
+    });
+  }
+  // نمط المقطع: متوسط قوة الضربات في كل خانة من المازورة
+  function foldProfile(fl, fps, beats, phase, perBar, sub) {
+    const slots = perBar * sub, acc = new Float64Array(slots), cnt = new Float64Array(slots), ibi = median(beats.slice(1).map((t, i) => t - beats[i])) || .5;
+    for (let i = 0; i < beats.length; i++) {
+      const bar = ((i - phase) % perBar + perBar) % perBar, nx = beats[i + 1] ?? beats[i] + ibi, d = nx - beats[i];
+      for (let s = 0; s < sub; s++) {
+        const c = beats[i] + d * s / sub, w = d / sub / 2; let m = 0;
+        for (let f = Math.max(0, Math.round((c - w) * fps)); f <= Math.round((c + w) * fps) && f < fl.length; f++) if (fl[f] > m) m = fl[f];
+        acc[bar * sub + s] += m; cnt[bar * sub + s]++;
+      }
+    }
+    const prof = Array.from(acc, (v, i) => cnt[i] ? v / cnt[i] : 0), mx = Math.max(...prof, 1e-9), mean = prof.reduce((a, b) => a + b, 0) / slots;
+    return { prof: prof.map(v => v / mx), contrast: mx / (mean || 1e-9) };
+  }
+  // ثلاثي ولا رباعي: أي تقسيم يعطي بداية مازورة أوضح
+  function guessMeter(lowFl, fps, beats) {
+    const at = beats.map(t => { const f = Math.round(t * fps); let m = 0; for (let k = -2; k <= 3; k++) m = Math.max(m, lowFl[f + k] || 0); return m; });
+    const score = per => { let best = 0; for (let p = 0; p < per; p++) { let s = 0, c = 0, o = 0, oc = 0; at.forEach((v, i) => { if ((i - p) % per === 0) { s += v; c++; } else { o += v; oc++; } }); best = Math.max(best, (s / (c || 1)) / ((o / (oc || 1)) || 1e-9)); } return best; };
+    const s3 = score(3), s4 = score(4);
+    return s3 > s4 * 1.18 ? 3 : 4;
+  }
+
+  // قوة النبض: الضربات على الشبكة مقابل بين الضربات (عالية = فيه إيقاع، منخفضة = صوت بس)
+  function pulseStrength(a, b, fps, beats) {
+    let on = 0, off = 0, n = 0;
+    for (let i = 0; i + 1 < beats.length; i++) {
+      const f = Math.round(beats[i] * fps), m = Math.round((beats[i] + beats[i + 1]) / 2 * fps);
+      const at = k => Math.max(a[k] || 0, a[k + 1] || 0, a[k - 1] || 0) + Math.max(b[k] || 0, b[k + 1] || 0, b[k - 1] || 0);
+      const q = Math.round((beats[i] * 3 + beats[i + 1]) / 4 * fps);
+      on += at(f); off += (at(q) + at(Math.round((beats[i] + 3 * beats[i + 1]) / 4 * fps))) / 2; n++;
+    }
+    return n ? on / (off || 1e-9) : 0;
+  }
   async function analyze(buffer, onProgress) {
     const x = await toMono22k(buffer);
-    const { env, low, fps } = onsetEnvelope(x, p => onProgress && onProgress(0.1 + 0.6 * p));
-    onProgress && onProgress(0.75);
+    const { env, low, hi, fps } = onsetEnvelope(x, p => onProgress && onProgress(0.1 + 0.55 * p));
+    onProgress && onProgress(0.7);
     const P = estimatePeriod(env, fps);
-    onProgress && onProgress(0.85);
+    // يتبع المنشد
     const frames = trackBeats(env, P);
-    let times = frames.map(f => f / fps - LATENCY);
-    const shift = Math.max(-0.04, Math.min(0.01, refineOffset(x, times)));
-    times = times.map(t => t + shift);
-    times = extendBeats(times, buffer.duration);
-    const framesAll = times.map(t => Math.round((t + LATENCY) * fps));
-    const phase = downbeatPhase(framesAll, low, 4);
+    let follow = frames.map(f => f / fps - LATENCY);
+    const shift = Math.max(-0.04, Math.min(0.01, refineOffset(x, follow)));
+    follow = extendBeats(smoothBeats(follow.map(t => t + shift)), buffer.duration);
+    onProgress && onProgress(0.85);
+    // ثابت
+    const g = steadyGrid(env, fps, P);
+    const steady = g.times.map(t => t - LATENCY + shift).filter(t => t >= 0 && t < buffer.duration);
+    const lowFl = flux(low), hiFl = flux(hi);
+    const meter = guessMeter(lowFl, fps, steady);
+    // بداية المازورة: الطور اللي تكون فيه الضربة الثقيلة على أول المازورة أقوى
+    const phaseOf = (b, per) => { let bp = 0, bv = -1; for (let ph = 0; ph < per; ph++) { const pr = foldProfile(lowFl, fps, b, ph, per, 4).prof; let o = 0; for (let k = 1; k < per; k++) o += pr[k * 4]; const v = pr[0] - o / Math.max(1, per - 1); if (v > bv) { bv = v; bp = ph; } } return bp; };
     onProgress && onProgress(1);
-    return { beats: times, bpm: 60 * fps / P, phase, env, fps, conf: confidence(times, env, fps), low };
+    return { beats: steady, steady, follow, bpm: 60 * fps / g.period, phase: phaseOf(steady, meter), meter, env, fps, low, lowFl, hiFl, phaseOf,
+      conf: confidence(steady, env, fps), pulse: pulseStrength(lowFl, hiFl, fps, steady) };
   }
 
   // من نقرات المستخدم: سرعة ثابتة وبداية
@@ -181,6 +247,6 @@ const DSP = (() => {
   function doubleBeats(b) { const o = []; for (let i = 0; i < b.length - 1; i++) { o.push(b[i], (b[i] + b[i + 1]) / 2); } o.push(b[b.length - 1]); return o; }
   function halveBeats(b, offset = 0) { return b.filter((_, i) => i % 2 === offset); }
 
-  return { analyze, refineOffset, fromTaps, doubleBeats, halveBeats, downbeatPhase, toMono22k, onsetEnvelope, estimatePeriod, trackBeats, median };
+  return { analyze, foldProfile, steadyGrid, smoothBeats, refineOffset, fromTaps, doubleBeats, halveBeats, downbeatPhase, toMono22k, onsetEnvelope, estimatePeriod, trackBeats, median };
 })();
 if (typeof window !== 'undefined') window.DSP = DSP;

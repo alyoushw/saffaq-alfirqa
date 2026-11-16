@@ -24,7 +24,7 @@
   const saved = store.get('clip1', {});
   const C = {
     file: null, name: '', isVideo: false, buffer: null, ana: null, beats: [], phase: 0, peaks: null, songRms: .1,
-    model: { beats: 4, sub: 4, tracks: Tracks.STYLES.mawlid.tracks() }, style: 'mawlid',
+    model: { beats: 4, sub: 4, tracks: Tracks.STYLES.mawlid.tracks() }, style: 'auto', beatMode: 'steady',
     nudge: 0, from: 0, to: 1e9, clapDb: saved.clapDb ?? 0, loose: saved.loose ?? 10, room: saved.room ?? 1.1, wet: saved.wet ?? 22,
     events: [], playing: false, pos: 0, t0: 0, idx: 0, timer: null, src: null, songGain: null, chain: null, solo: false, lastUri: null,
   };
@@ -46,6 +46,7 @@
 
   function renderStyles() {
     const box = $('styles'); box.innerHTML = '';
+    { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', C.style === 'auto'); b.innerHTML = '✨ تلقائي<small>من إيقاع المقطع</small>'; b.onclick = () => applyStyle('auto'); box.appendChild(b); }
     for (const [k, s] of Object.entries(Tracks.STYLES)) {
       const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', C.style === k);
       b.innerHTML = `${s.name}<small>${s.desc}</small>`; b.onclick = () => applyStyle(k); box.appendChild(b);
@@ -53,10 +54,20 @@
     if (C.style === 'custom') { const b = document.createElement('button'); b.className = 'chip'; b.setAttribute('aria-pressed', 'true'); b.textContent = 'تشكيلك الخاص'; box.appendChild(b); }
   }
   function applyStyle(k) {
-    C.style = k; C.model.tracks.splice(0, C.model.tracks.length, ...Tracks.STYLES[k].tracks());
-    Tracks.resize(C.model.tracks, 4, 4, C.model.beats, C.model.sub);
+    C.style = k;
+    if (k === 'auto' && C.ana) {
+      const per = C.model.beats, sub = C.model.sub, a = C.ana, bpm = 60 / (median(C.beats.slice(1).map((t, i) => t - C.beats[i])) || .5);
+      const r = Tracks.autoTracks(DSP.foldProfile(a.lowFl, a.fps, C.beats, C.phase, per, sub), DSP.foldProfile(a.hiFl, a.fps, C.beats, C.phase, per, sub), per, sub, bpm, a.pulse);
+      C.model.tracks.splice(0, C.model.tracks.length, ...r.tracks); $('styleWhy').textContent = r.why;
+    } else {
+      if (k === 'auto') k = C.style = 'mawlid';
+      C.model.tracks.splice(0, C.model.tracks.length, ...Tracks.STYLES[k].tracks());
+      Tracks.resize(C.model.tracks, 4, 4, C.model.beats, C.model.sub);
+      $('styleWhy').textContent = 'شكل جاهز: نفس النمط لكل المقاطع، والتوقيت من مقطعك.';
+    }
     renderStyles(); clipEd.render(); rebuild();
   }
+  const reAuto = () => { if (C.style === 'auto') applyStyle('auto'); else rebuild(); };
 
   // ---- المصدر: ملف أو تسجيل
   $('pickBtn').onclick = () => $('fileIn').click();
@@ -110,11 +121,13 @@
     status($('clipStatus'), `المدة ${fmtT(dur)}.` + (ana.conf < .35 ? ' الإيقاع مو واضح في هذا المقطع، اسمع وإذا ما ضبط استخدم "اضبط بالنقر".' : ''), ana.conf < .35 ? 'err' : 'ok');
     for (const id of ['anaCard', 'styleCard', 'playCard', 'expCard']) $(id).hidden = false;
     $('expVideo').hidden = !isVideo || !IO.native; $('shareBtn').hidden = true; status($('expStatus'), '');
-    $('fixBox').open = ana.conf < .35;
-    rebuild(); drawWave();
+    $('fixBox').open = false;
+    if (ana.meter !== C.model.beats) { Tracks.resize(C.model.tracks, C.model.beats, C.model.sub, ana.meter, C.model.sub); C.model.beats = ana.meter; $('meter').value = String(ana.meter); resetBeats(); }
+    applyStyle(C.style === 'custom' ? 'auto' : C.style); drawWave();
   }
   function resetBeats() {
-    C.beats = C.ana.beats.slice(); C.phase = DSP.downbeatPhase(C.beats.map(t => Math.round(t * C.ana.fps)), C.ana.low, C.model.beats);
+    C.beats = (C.beatMode === 'follow' ? C.ana.follow : C.ana.steady).slice(); C.phase = C.ana.phaseOf(C.beats, C.model.beats);
+    document.querySelectorAll('#beatMode .chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === C.beatMode));
     updateStats();
   }
   function updateStats() {
@@ -229,14 +242,14 @@
   $('soloBtn').onclick = () => { C.solo = !C.solo; $('soloBtn').setAttribute('aria-pressed', C.solo); $('soloBtn').textContent = C.solo ? '🔇 المقطع مكتوم (اضغط ترجّعه)' : 'الصفقة لحالها'; refreshMix(); };
 
   // ---- إصلاح الإيقاع
-  $('dblBtn').onclick = () => { C.beats = DSP.doubleBeats(C.beats); C.phase = (C.phase * 2) % C.model.beats; updateStats(); rebuild(); toast('صارت السرعة الضعف'); };
-  $('halfBtn').onclick = () => { if (C.beats.length < 8) return; C.beats = DSP.halveBeats(C.beats, C.phase % 2); C.phase = Math.floor(C.phase / 2); updateStats(); rebuild(); toast('صارت السرعة النص'); };
-  $('phaseBtn').onclick = () => { C.phase = (C.phase + 1) % C.model.beats; rebuild(); toast('تحرّكت بداية المازورة ضربة وحدة'); };
-  $('reBtn').onclick = () => { if (!C.ana) return; resetBeats(); rebuild(); toast('رجعت للتحليل الأصلي'); };
+  $('dblBtn').onclick = () => { C.beats = DSP.doubleBeats(C.beats); C.phase = (C.phase * 2) % C.model.beats; updateStats(); reAuto(); toast('صارت السرعة الضعف'); };
+  $('halfBtn').onclick = () => { if (C.beats.length < 8) return; C.beats = DSP.halveBeats(C.beats, C.phase % 2); C.phase = Math.floor(C.phase / 2); updateStats(); reAuto(); toast('صارت السرعة النص'); };
+  $('phaseBtn').onclick = () => { C.phase = (C.phase + 1) % C.model.beats; reAuto(); toast('تحرّكت بداية المازورة ضربة وحدة'); };
+  $('reBtn').onclick = () => { if (!C.ana) return; resetBeats(); reAuto(); toast('رجعت للتحليل الأصلي'); };
   $('meter').onchange = e => {
     const nb = +e.target.value; Tracks.resize(C.model.tracks, C.model.beats, C.model.sub, nb, C.model.sub); C.model.beats = nb;
-    if (C.ana) C.phase = DSP.downbeatPhase(C.beats.map(t => Math.round(t * C.ana.fps)), C.ana.low, nb);
-    clipEd.render(); rebuild();
+    if (C.ana) C.phase = C.ana.phaseOf(C.beats, nb);
+    clipEd.render(); reAuto();
   };
   let taps = [];
   $('tapBtn').onclick = () => { taps = []; $('tapInfo').textContent = '٠ نقرات'; $('tapDone').disabled = true; $('tapLayer').hidden = false; stopClip(); playClip(C.pos > 1 ? C.pos : 0); };
@@ -248,7 +261,7 @@
   $('tapDone').onclick = () => {
     const r = DSP.fromTaps(taps, C.buffer.duration); $('tapLayer').hidden = true; stopClip(); if (!r) return;
     C.beats = r.beats; let i0 = 0, best = 1e9; r.beats.forEach((t, i) => { if (Math.abs(t - taps[0]) < best) { best = Math.abs(t - taps[0]); i0 = i; } });
-    C.phase = i0 % C.model.beats; updateStats(); rebuild(); toast('تم ضبط الإيقاع على نقراتك: ' + AR(Math.round(r.bpm)) + ' ض/د');
+    C.phase = i0 % C.model.beats; updateStats(); reAuto(); toast('تم ضبط الإيقاع على نقراتك: ' + AR(Math.round(r.bpm)) + ' ض/د');
   };
 
   // ---- أدوات التحكم
@@ -267,6 +280,7 @@
   $('room').onchange = e => { C.room = +e.target.value; saveClip(); refreshMix(); };
   $('wet').oninput = e => { C.wet = +e.target.value; syncCtrls(); saveClip(); refreshMix(); };
   $('clipAdd').onclick = () => clipEd.addTrack();
+  document.querySelectorAll('#beatMode .chip').forEach(b => b.onclick = () => { if (!C.ana) return; C.beatMode = b.dataset.m; resetBeats(); reAuto(); toast(C.beatMode === 'steady' ? 'الإيقاع ثابت طول المقطع' : 'الإيقاع يتبع المنشد'); });
 
   // ---- التصدير
   async function renderClip(withSong) {
